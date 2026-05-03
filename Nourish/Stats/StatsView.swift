@@ -1,0 +1,565 @@
+import SwiftUI
+import SwiftData
+
+struct StatsView: View {
+    var onLogFirstSession: (() -> Void)? = nil
+
+    @Environment(\.nourishColors) private var c
+    @Query(sort: \FeedingSession.startTime, order: SortOrder.reverse) private var sessions: [FeedingSession]
+
+    @State private var selectedTab = 1   // 0=Day, 1=Week, 2=Month
+    @State private var chartAnimated = false
+
+    // MARK: Computed stats
+
+    private var filteredSessions: [FeedingSession] {
+        let now = Date.now
+        let calendar = Calendar.current
+        switch selectedTab {
+        case 0:
+            let start = calendar.startOfDay(for: now)
+            return sessions.filter { $0.startTime >= start }
+        case 2:
+            let start = calendar.date(byAdding: .month, value: -1, to: now)!
+            return sessions.filter { $0.startTime >= start }
+        default:
+            let start = calendar.date(byAdding: .weekOfYear, value: -1, to: now)!
+            return sessions.filter { $0.startTime >= start }
+        }
+    }
+
+    private var breastSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType != .bottle } }
+    private var bottleSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType == .bottle } }
+    private var leftSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .left } }
+    private var rightSessions: [FeedingSession]   { filteredSessions.filter { $0.feedType == .right } }
+
+    private var totalSessions: Int { filteredSessions.count }
+
+    private var avgDurationMins: Int {
+        guard !breastSessions.isEmpty else { return 0 }
+        let total = breastSessions.reduce(0) { $0 + $1.durationMinutes }
+        return total / breastSessions.count
+    }
+
+    private var avgGapHours: Double {
+        guard breastSessions.count > 1 else { return 0 }
+        let sorted = breastSessions.sorted { $0.startTime < $1.startTime }
+        var totalGap: TimeInterval = 0
+        for i in 1..<sorted.count {
+            totalGap += sorted[i].startTime.timeIntervalSince(sorted[i-1].endTime ?? sorted[i-1].startTime)
+        }
+        return (totalGap / Double(sorted.count - 1)) / 3600
+    }
+
+    // Bar chart data — adapts to selected tab
+    private var chartBarData: [(label: String, count: Int)] {
+        let calendar = Calendar.current
+        let now = Date.now
+
+        switch selectedTab {
+        case 0: // Day — 6 × 4-hour buckets across today
+            let dayStart = calendar.startOfDay(for: now)
+            return (0..<6).map { i in
+                let bucketStart = calendar.date(byAdding: .hour, value: i * 4, to: dayStart)!
+                let bucketEnd   = calendar.date(byAdding: .hour, value: i * 4 + 4, to: dayStart)!
+                let count = sessions.filter { $0.startTime >= bucketStart && $0.startTime < bucketEnd }.count
+                let label: String
+                switch i * 4 {
+                case 0:  label = "12A"
+                case 4:  label = "4A"
+                case 8:  label = "8A"
+                case 12: label = "12P"
+                case 16: label = "4P"
+                default: label = "8P"
+                }
+                return (label, count)
+            }
+        case 2: // Month — 4 weekly buckets, oldest → newest
+            return (0..<4).map { i in
+                let weeksAgo    = 3 - i
+                let bucketEnd   = calendar.date(byAdding: .weekOfYear, value: -weeksAgo, to: now)!
+                let bucketStart = calendar.date(byAdding: .weekOfYear, value: -1, to: bucketEnd)!
+                let count = sessions.filter { $0.startTime >= bucketStart && $0.startTime < bucketEnd }.count
+                return ("Wk \(i + 1)", count)
+            }
+        default: // Week — last 7 days
+            return (0..<7).reversed().map { offset in
+                let date     = calendar.date(byAdding: .day, value: -offset, to: now)!
+                let dayStart = calendar.startOfDay(for: date)
+                let dayEnd   = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+                let count    = sessions.filter { $0.startTime >= dayStart && $0.startTime < dayEnd }.count
+                let weekday  = calendar.shortWeekdaySymbols[calendar.component(.weekday, from: date) - 1]
+                return (String(weekday.prefix(1)), count)
+            }
+        }
+    }
+
+    private var maxBarValue: Int { max(1, chartBarData.map { $0.count }.max() ?? 1) }
+
+    private var leftPct:   Double { filteredSessions.isEmpty ? 0 : Double(leftSessions.count) / Double(filteredSessions.count) }
+    private var rightPct:  Double { filteredSessions.isEmpty ? 0 : Double(rightSessions.count) / Double(filteredSessions.count) }
+    private var bottlePct: Double { filteredSessions.isEmpty ? 0 : Double(bottleSessions.count) / Double(filteredSessions.count) }
+
+    private var avgLeftMins: Int {
+        let left = breastSessions.filter { $0.feedType == .left }
+        guard !left.isEmpty else { return 0 }
+        return left.reduce(0) { $0 + $1.durationMinutes } / left.count
+    }
+
+    private var avgRightMins: Int {
+        let right = breastSessions.filter { $0.feedType == .right }
+        guard !right.isEmpty else { return 0 }
+        return right.reduce(0) { $0 + $1.durationMinutes } / right.count
+    }
+
+    // MARK: Body
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            tabPicker
+            if selectedTab == 3 {
+                historyList
+            } else {
+                ScrollView {
+                    if sessions.isEmpty {
+                        statsEmptyState
+                    } else {
+                        VStack(spacing: 0) {
+                            summaryCards
+                            barChartCard
+                            breastVsBottleCard
+                            avgTimeCard
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
+                    }
+                }
+            }
+        }
+        .background(c.bg)
+        .onChange(of: selectedTab) {
+            chartAnimated = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                withAnimation { chartAnimated = true }
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                withAnimation { chartAnimated = true }
+            }
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack {
+            Text("Stats")
+                .font(.nSerif(28))
+                .foregroundStyle(c.ink)
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: Tab picker
+
+    private let tabLabels = ["Day", "Week", "Month", "History"]
+
+    private var tabPicker: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<tabLabels.count, id: \.self) { index in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { selectedTab = index }
+                } label: {
+                    Text(tabLabels[index])
+                        .font(.nSans(14, weight: .semibold))
+                        .foregroundStyle(selectedTab == index ? c.bg : c.muted)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 7)
+                        .background(selectedTab == index ? c.ink : Color.clear)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(selectedTab == index ? c.ink : c.border, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 14)
+    }
+
+    // MARK: Summary cards
+
+    private var summaryCards: some View {
+        HStack(spacing: 10) {
+            summaryCell(big: "\(totalSessions)", small: "sessions")
+            summaryCell(big: "\(avgDurationMins) min", small: "avg per session")
+            summaryCell(big: String(format: "%.1fh", avgGapHours), small: "avg gap")
+        }
+        .padding(.bottom, 14)
+    }
+
+    private func summaryCell(big: String, small: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(big)
+                .font(.nSerif(22))
+                .foregroundStyle(c.ink)
+            Text(small)
+                .font(.nSans(12))
+                .foregroundStyle(c.muted)
+                .lineLimit(2)
+                .lineSpacing(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(13)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1))
+    }
+
+    // MARK: Bar chart
+
+    private var chartTitle: String {
+        switch selectedTab {
+        case 0: return "Sessions by time of day"
+        case 2: return "Sessions per week"
+        default: return "Sessions per day"
+        }
+    }
+
+    private var barChartCard: some View {
+        card {
+            cardTitle(chartTitle)
+
+            HStack(alignment: .bottom, spacing: 7) {
+                ForEach(chartBarData.indices, id: \.self) { i in
+                    let item = chartBarData[i]
+                    let fraction = maxBarValue > 0 ? Double(item.count) / Double(maxBarValue) : 0
+
+                    VStack(spacing: 5) {
+                        GeometryReader { geo in
+                            VStack(spacing: 0) {
+                                Spacer()
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: i == chartBarData.count - 1
+                                                ? [c.leftAccent.opacity(0.8), c.leftAccent]
+                                                : [c.leftAccent.opacity(0.4), c.leftAccent.opacity(0.6)],
+                                            startPoint: .top, endPoint: .bottom
+                                        )
+                                    )
+                                    .frame(height: chartAnimated ? geo.size.height * fraction : 0)
+                                    .animation(
+                                        .spring(duration: 0.7, bounce: 0.4)
+                                            .delay(Double(i) * 0.06),
+                                        value: chartAnimated
+                                    )
+                            }
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .background(c.leftAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                        .frame(height: 96)
+
+                        Text(item.label)
+                            .font(.nSans(11))
+                            .foregroundStyle(c.muted)
+                    }
+                }
+            }
+            .frame(height: 110)
+        }
+    }
+
+    // MARK: Breast vs Bottle
+
+    private var breastVsBottleCard: some View {
+        card {
+            cardTitle("Breast vs Bottle")
+
+            if filteredSessions.isEmpty {
+                Text("No sessions yet")
+                    .font(.nSans(14))
+                    .foregroundStyle(c.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            } else {
+                // Stacked bar
+                GeometryReader { geo in
+                    HStack(spacing: 3) {
+                        if leftPct > 0 {
+                            Capsule()
+                                .fill(c.leftAccent)
+                                .frame(width: geo.size.width * leftPct)
+                        }
+                        if rightPct > 0 {
+                            Capsule()
+                                .fill(c.rightAccent)
+                                .frame(width: geo.size.width * rightPct)
+                        }
+                        if bottlePct > 0 {
+                            Capsule()
+                                .fill(Color(hex: "C4A265"))
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .frame(height: 16)
+                .padding(.bottom, 8)
+
+                HStack {
+                    legendDot(color: c.leftAccent, label: "Left \(Int(leftPct * 100))%")
+                    Spacer()
+                    legendDot(color: c.rightAccent, label: "Right \(Int(rightPct * 100))%")
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Text("🍼").font(.nSans(12))
+                        Text("Bottle \(Int(bottlePct * 100))%")
+                            .font(.nSans(12, weight: .semibold))
+                            .foregroundStyle(c.bottleAccent)
+                    }
+                }
+                .padding(.bottom, 12)
+
+                if !bottleSessions.isEmpty {
+                    Divider().overlay(c.border).padding(.bottom, 10)
+
+                    Text("Bottle type")
+                        .font(.nSans(11, weight: .bold))
+                        .foregroundStyle(c.muted)
+                        .kerning(0.08 * 11)
+                        .textCase(.uppercase)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 7)
+
+                    HStack(spacing: 8) {
+                        ForEach(BottleContentType.allCases, id: \.rawValue) { type in
+                            let count = bottleSessions.filter { $0.bottleContentType == type }.count
+                            HStack(spacing: 7) {
+                                Text(type.icon).font(.nSans(16))
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(type.displayName)
+                                        .font(.nSans(13, weight: .bold))
+                                        .foregroundStyle(c.bottleAccent)
+                                    Text("\(count) session\(count == 1 ? "" : "s")")
+                                        .font(.nSans(11))
+                                        .foregroundStyle(c.muted)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(c.bottleBg)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.bottleBorder, lineWidth: 1))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func legendDot(color: Color, label: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label)
+                .font(.nSans(12, weight: .semibold))
+                .foregroundStyle(color == c.leftAccent ? c.leftText : c.rightText)
+        }
+    }
+
+    // MARK: Avg time per breast
+
+    private var avgTimeCard: some View {
+        card {
+            cardTitle("Avg session time")
+            HStack(spacing: 0) {
+                avgTimeCell(value: avgLeftMins > 0 ? "\(avgLeftMins) min" : "--", label: "Left", color: c.leftText)
+                Divider().overlay(c.border)
+                avgTimeCell(value: avgRightMins > 0 ? "\(avgRightMins) min" : "--", label: "Right", color: c.rightText)
+            }
+        }
+    }
+
+    private func avgTimeCell(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.nSerif(26))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.nSans(11))
+                .foregroundStyle(c.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+    }
+
+    // MARK: History list
+
+    private var historyList: some View {
+        ScrollView {
+            if sessions.isEmpty {
+                historyEmptyState
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(sessions) { session in
+                        historyRow(session)
+                        Divider()
+                            .overlay(c.border)
+                            .padding(.horizontal, 20)
+                    }
+                }
+                .padding(.bottom, 20)
+            }
+        }
+    }
+
+    private func historyRow(_ s: FeedingSession) -> some View {
+        HStack(spacing: 12) {
+            // Side indicator
+            Group {
+                if s.feedType == .bottle {
+                    Text("🍼").font(.nSans(20))
+                } else {
+                    Text(s.feedType.shortLabel)
+                        .font(.nSans(14, weight: .bold))
+                        .foregroundStyle(s.feedType == .left ? c.leftText : c.rightText)
+                        .frame(width: 36, height: 36)
+                        .background(s.feedType == .left ? c.leftBg : c.rightBg)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(
+                            s.feedType == .left
+                                ? c.leftAccent.opacity(0.25)
+                                : c.rightAccent.opacity(0.25),
+                            lineWidth: 1.5))
+                }
+            }
+
+            // Date + time
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.startTime.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                    .font(.nSans(14, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                Text(s.startTime.formatted(date: .omitted, time: .shortened))
+                    .font(.nSans(12))
+                    .foregroundStyle(c.muted)
+            }
+
+            Spacer()
+
+            // Duration pill
+            VStack(alignment: .trailing, spacing: 2) {
+                if s.feedType == .bottle {
+                    Text(s.bottleAmountMl.map { "\($0) ml" } ?? "—")
+                        .font(.nSans(14, weight: .bold))
+                        .foregroundStyle(c.bottleAccent)
+                    if let contentType = s.bottleContentType {
+                        Text(contentType.displayName)
+                            .font(.nSans(11))
+                            .foregroundStyle(c.muted)
+                    }
+                } else {
+                    Text(s.formattedDuration)
+                        .font(.nSans(14, weight: .bold))
+                        .foregroundStyle(s.feedType == .left ? c.leftText : c.rightText)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: Empty states
+
+    private var statsEmptyState: some View {
+        VStack(spacing: 14) {
+            Text("🌱")
+                .font(.nSans(52))
+                .padding(.top, 64)
+
+            Text("Your stats will grow here")
+                .font(.nSerif(24))
+                .foregroundStyle(c.ink)
+                .multilineTextAlignment(.center)
+
+            Text("Log your first session to start seeing patterns")
+                .font(.nSans(14))
+                .foregroundStyle(c.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .padding(.horizontal, 40)
+
+            if sessions.isEmpty, let action = onLogFirstSession {
+                Button {
+                    action()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Log first session")
+                            .font(.nSans(15, weight: .semibold))
+                        Image(systemName: "arrow.right")
+                            .font(.nSans(13, weight: .semibold))
+                    }
+                    .foregroundStyle(c.bg)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 13)
+                    .background(c.ink)
+                    .clipShape(Capsule())
+                    .shadow(color: c.ink.opacity(0.18), radius: 8, y: 4)
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 48)
+    }
+
+    private var historyEmptyState: some View {
+        VStack(spacing: 12) {
+            Text("🌿")
+                .font(.nSans(44))
+                .padding(.top, 64)
+
+            Text("No sessions yet")
+                .font(.nSerif(22))
+                .foregroundStyle(c.ink)
+
+            Text("Your feeding history will appear here\nas you log sessions.")
+                .font(.nSans(14))
+                .foregroundStyle(c.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 48)
+    }
+
+    // MARK: Card container
+
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+        }
+        .padding(16)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.border, lineWidth: 1))
+        .padding(.bottom, 14)
+    }
+
+    private func cardTitle(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.nSans(11, weight: .bold))
+            .foregroundStyle(c.muted)
+            .kerning(0.1 * 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 12)
+    }
+}
