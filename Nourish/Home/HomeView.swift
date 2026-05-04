@@ -46,6 +46,7 @@ struct HomeView: View {
                 .presentationDetents([.height(360)])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(28)
+                .presentationBackground(c.bg)
         }
     }
 

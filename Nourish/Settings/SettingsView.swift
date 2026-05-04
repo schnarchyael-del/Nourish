@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import AuthenticationServices
 
 struct SettingsView: View {
     @Environment(\.nourishColors) private var c
+    @ObservedObject private var auth = AuthManager.shared
+    @ObservedObject private var firestore = FirestoreService.shared
 
     @AppStorage("userName")             private var userName             = "Sarah"
     @AppStorage("babyName")             private var babyName             = "Lily"
@@ -53,6 +56,17 @@ struct SettingsView: View {
                     .presentationDragIndicator(.hidden)
                     .presentationCornerRadius(28)
             }
+            .alert(
+                "Replace local data?",
+                isPresented: $firestore.hasPendingAccountSwitch
+            ) {
+                Button("Cancel", role: .cancel) { firestore.cancelAccountSwitch() }
+                Button("Continue", role: .destructive) {
+                    Task { await firestore.confirmAccountSwitch() }
+                }
+            } message: {
+                Text("Signing into a different account will replace your local feeding data with the data on this account. This can't be undone.")
+            }
             .onAppear {
                 if familyCode.isEmpty { familyCode = Self.generateFamilyCode() }
             }
@@ -94,6 +108,8 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
+                    accountSection
+
                     settingsGroup("Profile") {
                         row(icon: "👤", label: userName, sub: "Tap to edit profile",
                             action: { activeSheet = .profile })
@@ -141,6 +157,92 @@ struct SettingsView: View {
             }
         }
         .background(c.bg)
+    }
+
+    // MARK: Account section
+
+    private var accountSection: some View {
+        settingsGroup("Account") {
+            if auth.isSignedIn {
+                signedInRow
+            } else {
+                signInPrompt
+            }
+        }
+    }
+
+    private var signedInRow: some View {
+        HStack(spacing: 14) {
+            Text("👤").font(.nSans(19))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(auth.displayLabel)
+                    .font(.nSans(15, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    if firestore.isSyncing {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Syncing…")
+                            .font(.nSans(12))
+                            .foregroundStyle(c.muted)
+                    } else {
+                        Text("Synced to cloud")
+                            .font(.nSans(12))
+                            .foregroundStyle(c.muted)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                auth.signOut()
+            } label: {
+                Text("Sign Out")
+                    .font(.nSans(13))
+                    .foregroundStyle(c.muted)
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .overlay(Capsule().stroke(c.border, lineWidth: 1))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+
+    private var signInPrompt: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sign in to back up your sessions and sync them across devices.")
+                .font(.nSans(13))
+                .foregroundStyle(c.muted)
+                .lineSpacing(4)
+
+            ZStack {
+                SignInWithAppleButton(.signIn,
+                    onRequest: { auth.configure($0) },
+                    onCompletion: { auth.handleAppleSignIn($0) }
+                )
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 50)
+                .clipShape(Capsule())
+                .disabled(auth.isWorking)
+                .opacity(auth.isWorking ? 0.5 : 1)
+
+                if auth.isWorking {
+                    ProgressView().tint(.white)
+                }
+            }
+
+            if let error = auth.errorMessage {
+                Text(error)
+                    .font(.nSans(12))
+                    .foregroundStyle(.red.opacity(0.85))
+                    .lineSpacing(3)
+            }
+        }
+        .padding(18)
     }
 
     // MARK: Notifications section
@@ -822,13 +924,15 @@ private struct DataSubView: View {
         let df = DateFormatter(); df.dateFormat = "d MMM yyyy"
         let tf = DateFormatter(); tf.dateFormat = "HH:mm"
 
-        var csv = "Date,Start Time,Duration (mins),Side,Bottle Type,Amount ML\n"
+        var csv = "Date,Start Time,Duration (mins),Left Duration (mins),Right Duration (mins),Side,Bottle Type,Amount ML\n"
         for s in sessions {
             let side = s.feedType == .bottle ? "" : s.feedType.displayName
             let row = [
                 df.string(from: s.startTime),
                 tf.string(from: s.startTime),
                 "\(s.durationMinutes)",
+                "\(s.leftMinutesResolved)",
+                "\(s.rightMinutesResolved)",
                 side,
                 s.bottleContentType?.displayName ?? "",
                 s.bottleAmountMl.map { "\($0)" } ?? ""
@@ -910,6 +1014,7 @@ private struct BabyEditView: View {
     @AppStorage("babyName")         private var babyName         = "Lily"
     @AppStorage("babyDOBTimestamp") private var babyDOBTimestamp: Double = Date.now.timeIntervalSince1970
     @State private var showDOBPicker = false
+    @FocusState private var nameFocused: Bool
 
     private var babyDOB: Date { Date(timeIntervalSince1970: babyDOBTimestamp) }
     private var babyAge: String {
@@ -925,11 +1030,15 @@ private struct BabyEditView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     editField("Baby's name", text: $babyName)
+                        .focused($nameFocused)
+                        .submitLabel(.done)
+                        .onSubmit { nameFocused = false }
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Date of birth".uppercased())
                             .font(.nSans(12, weight: .bold)).foregroundStyle(c.muted)
                             .kerning(0.08 * 12).padding(.bottom, 6)
                         Button {
+                            nameFocused = false
                             withAnimation(.easeInOut(duration: 0.25)) { showDOBPicker.toggle() }
                         } label: {
                             HStack {
@@ -965,10 +1074,14 @@ private struct BabyEditView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 18))
                         .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.leftAccent.opacity(0.15), lineWidth: 1))
                         .padding(.bottom, 20)
-                    saveButton { dismiss() }
+                    saveButton {
+                        nameFocused = false
+                        dismiss()
+                    }
                 }
                 .padding(.horizontal, 22).padding(.top, 24).padding(.bottom, 28)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .background(c.bg.ignoresSafeArea())
     }

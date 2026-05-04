@@ -1,5 +1,9 @@
 import SwiftUI
 
+fileprivate enum OnboardingField: Hashable {
+    case babyName, userName, partnerName
+}
+
 struct OnboardingView: View {
     @Environment(\.nourishColors) private var c
     let onComplete: () -> Void
@@ -11,6 +15,7 @@ struct OnboardingView: View {
     @State private var userName    = ""
     @State private var partnerName = ""
     @State private var showDOBPicker = false
+    @FocusState private var focus: OnboardingField?
 
     var body: some View {
         Group {
@@ -113,6 +118,9 @@ struct OnboardingView: View {
 
                 fieldLabel("Baby's name")
                 OnboardingTextField(text: $babyName, colors: c, focused: true)
+                    .focused($focus, equals: .babyName)
+                    .submitLabel(.next)
+                    .onSubmit { focus = .userName }
                     .padding(.bottom, 16)
 
                 fieldLabel("Date of birth")
@@ -125,14 +133,21 @@ struct OnboardingView: View {
 
                 fieldLabel("Your name")
                 OnboardingTextField(text: $userName, placeholder: "Your name", colors: c)
+                    .focused($focus, equals: .userName)
+                    .submitLabel(.done)
+                    .onSubmit { focus = nil }
                     .padding(.bottom, 24)
 
-                ctaButton("Continue →", disabled: babyName.trimmingCharacters(in: .whitespaces).isEmpty) { step = 2 }
+                ctaButton("Continue →", disabled: babyName.trimmingCharacters(in: .whitespaces).isEmpty) {
+                    focus = nil
+                    step = 2
+                }
             }
             .padding(.horizontal, 26)
             .padding(.top, 58 + 14)
             .padding(.bottom, 28)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var genderPicker: some View {
@@ -140,7 +155,10 @@ struct OnboardingView: View {
             ForEach(["Boy", "Girl", "Other"], id: \.self) { option in
                 let selected = babyGender == option
                 let emoji = option == "Boy" ? "👦" : option == "Girl" ? "👧" : "🌈"
-                Button { babyGender = option } label: {
+                Button {
+                    focus = nil
+                    babyGender = option
+                } label: {
                     HStack(spacing: 6) {
                         Text(emoji).font(.nSans(16))
                         Text(option)
@@ -166,6 +184,7 @@ struct OnboardingView: View {
     private var dobPickerField: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
+                focus = nil
                 withAnimation(.easeInOut(duration: 0.25)) { showDOBPicker.toggle() }
             } label: {
                 HStack {
@@ -240,6 +259,9 @@ struct OnboardingView: View {
 
                         fieldLabel("Their name")
                         OnboardingTextField(text: $partnerName, placeholder: "Partner's name", colors: c)
+                            .focused($focus, equals: .partnerName)
+                            .submitLabel(.done)
+                            .onSubmit { focus = nil }
                             .padding(.bottom, 14)
 
                         Text("They can view and log sessions. You'll both see each other's activity.")
@@ -283,12 +305,14 @@ struct OnboardingView: View {
                 .padding(.horizontal, 26)
                 .padding(.bottom, 28)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 
     // MARK: Helpers
 
     private func finishOnboarding() {
+        focus = nil
         UserDefaults.standard.set(babyName, forKey: "babyName")
         UserDefaults.standard.set(babyDOB.timeIntervalSince1970, forKey: "babyDOBTimestamp")
         UserDefaults.standard.set(babyGender, forKey: "babyGender")

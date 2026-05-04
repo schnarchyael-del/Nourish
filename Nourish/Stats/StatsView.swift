@@ -101,15 +101,15 @@ struct StatsView: View {
     private var bottlePct: Double { filteredSessions.isEmpty ? 0 : Double(bottleSessions.count) / Double(filteredSessions.count) }
 
     private var avgLeftMins: Int {
-        let left = breastSessions.filter { $0.feedType == .left }
-        guard !left.isEmpty else { return 0 }
-        return left.reduce(0) { $0 + $1.durationMinutes } / left.count
+        let mins = breastSessions.map(\.leftMinutesResolved).filter { $0 > 0 }
+        guard !mins.isEmpty else { return 0 }
+        return mins.reduce(0, +) / mins.count
     }
 
     private var avgRightMins: Int {
-        let right = breastSessions.filter { $0.feedType == .right }
-        guard !right.isEmpty else { return 0 }
-        return right.reduce(0) { $0 + $1.durationMinutes } / right.count
+        let mins = breastSessions.map(\.rightMinutesResolved).filter { $0 > 0 }
+        guard !mins.isEmpty else { return 0 }
+        return mins.reduce(0, +) / mins.count
     }
 
     // MARK: Body

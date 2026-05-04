@@ -19,10 +19,11 @@ struct ActiveSessionView: View {
     @State private var alarmFired    = false
 
     // Captured at alarm-fire time so save closure has stable values
-    @State private var capturedStartTime:  Date     = .now
-    @State private var capturedFeedType:   FeedType = .left
-    @State private var capturedSide:       FeedSide = .left
-    @State private var capturedElapsed:    Int      = 0
+    @State private var capturedStartTime:    Date     = .now
+    @State private var capturedFeedType:     FeedType = .left
+    @State private var capturedSide:         FeedSide = .left
+    @State private var capturedElapsed:      Int      = 0
+    @State private var capturedSwitchedAt:   Int?     = nil
 
     private var encouragements: [String] {
         let pronoun:    String
@@ -139,6 +140,7 @@ struct ActiveSessionView: View {
                 capturedFeedType   = (store.startSide ?? .left).feedType
                 capturedSide       = store.startSide ?? .left
                 capturedElapsed    = newValue
+                capturedSwitchedAt = store.switchedAtSeconds
                 fireAlarmHapticAndSound()
                 withAnimation(.easeInOut(duration: 0.3)) { showAlarmModal = true }
             }
@@ -152,14 +154,23 @@ struct ActiveSessionView: View {
                     onSave: { endTime in
                         let startTime  = capturedStartTime
                         let feedType   = capturedFeedType
+                        let totalSeconds = max(0, Int(endTime.timeIntervalSince(startTime)))
+                        let split = SessionStore.splitMinutes(
+                            startSide: capturedSide,
+                            switchedAtSeconds: capturedSwitchedAt,
+                            totalSeconds: totalSeconds
+                        )
                         store.cancel()
                         let session = FeedingSession(
                             startTime: startTime,
                             feedType: feedType,
-                            endTime: endTime
+                            endTime: endTime,
+                            leftDurationMins: split.left,
+                            rightDurationMins: split.right
                         )
                         modelContext.insert(session)
                         try? modelContext.save()
+                        Task { await FirestoreService.shared.pushSession(session) }
                         showAlarmModal = false
                     },
                     onDiscard: {
@@ -337,10 +348,13 @@ struct ActiveSessionView: View {
         let session = FeedingSession(
             startTime: result.startTime,
             feedType: result.feedType,
-            endTime: result.endTime
+            endTime: result.endTime,
+            leftDurationMins: result.leftMins,
+            rightDurationMins: result.rightMins
         )
         modelContext.insert(session)
         try? modelContext.save()
+        Task { await FirestoreService.shared.pushSession(session) }
     }
 }
 

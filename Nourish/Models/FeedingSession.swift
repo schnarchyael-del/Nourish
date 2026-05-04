@@ -101,4 +101,18 @@ final class FeedingSession {
         if hours > 0              { return "\(hours)h ago" }
         return "\(mins)m ago"
     }
+
+    // Time on each side, using stored splits when available and falling back to
+    // attributing full duration to the starting side for legacy sessions.
+    var leftMinutesResolved: Int {
+        if feedType == .bottle { return 0 }
+        if let m = leftDurationMins { return m }
+        return feedType == .left ? durationMinutes : 0
+    }
+
+    var rightMinutesResolved: Int {
+        if feedType == .bottle { return 0 }
+        if let m = rightDurationMins { return m }
+        return feedType == .right ? durationMinutes : 0
+    }
 }

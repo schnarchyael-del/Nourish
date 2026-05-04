@@ -89,14 +89,40 @@ final class SessionStore {
         elapsedSeconds = max(elapsedSeconds, wallElapsed)
     }
 
-    func end() -> (startTime: Date, feedType: FeedType, endTime: Date) {
+    func end() -> (startTime: Date, feedType: FeedType, endTime: Date, leftMins: Int, rightMins: Int) {
         stopTimer()
         let endTime = Date.now
         let startTime = sessionStartDate ?? endTime.addingTimeInterval(-TimeInterval(elapsedSeconds))
-        let feedType = (startSide ?? .left).feedType
+        let start = startSide ?? .left
+        let split = Self.splitMinutes(startSide: start,
+                                      switchedAtSeconds: switchedAtSeconds,
+                                      totalSeconds: elapsedSeconds)
         clearPersisted()
         reset()
-        return (startTime, feedType, endTime)
+        return (startTime, start.feedType, endTime, split.left, split.right)
+    }
+
+    /// Splits a session's total elapsed seconds into left/right minutes based on
+    /// when (if ever) the user switched sides.
+    static func splitMinutes(startSide: FeedSide,
+                             switchedAtSeconds: Int?,
+                             totalSeconds: Int) -> (left: Int, right: Int) {
+        let total = max(0, totalSeconds)
+        let startSeconds: Int
+        let oppositeSeconds: Int
+        if let switchAt = switchedAtSeconds {
+            let clamped = min(max(0, switchAt), total)
+            startSeconds = clamped
+            oppositeSeconds = total - clamped
+        } else {
+            startSeconds = total
+            oppositeSeconds = 0
+        }
+        let startMins = startSeconds / 60
+        let oppositeMins = oppositeSeconds / 60
+        return startSide == .left
+            ? (left: startMins, right: oppositeMins)
+            : (left: oppositeMins, right: startMins)
     }
 
     func cancel() {

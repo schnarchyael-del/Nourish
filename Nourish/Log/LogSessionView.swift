@@ -396,6 +396,7 @@ struct LogSessionView: View {
         )
         modelContext.insert(session)
         try? modelContext.save()
+        Task { await FirestoreService.shared.pushSession(session) }
         onSave()
     }
 
