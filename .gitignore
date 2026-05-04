@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcarchive
+
+# SPM build cache (Package.resolved is committed)
+.build/
+.swiftpm/
+
+# CocoaPods (not currently used)
+Pods/
