@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("partnerConnected")     private var partnerConnected     = false
 
     @State private var activeSheet: ActiveSheet? = nil
+    @State private var showEmailSignIn = false
 
     enum ActiveSheet: String, Identifiable {
         case profile, baby, appearance, partner, alarm, reminder, data
@@ -51,6 +52,13 @@ struct SettingsView: View {
         mainView
             .sheet(item: $activeSheet) { sheet in
                 sheetContent(for: sheet)
+                    .environment(\.nourishColors, c)
+                    .presentationDetents([.fraction(0.875)])
+                    .presentationDragIndicator(.hidden)
+                    .presentationCornerRadius(28)
+            }
+            .sheet(isPresented: $showEmailSignIn) {
+                EmailSignInView()
                     .environment(\.nourishColors, c)
                     .presentationDetents([.fraction(0.875)])
                     .presentationDragIndicator(.hidden)
@@ -234,6 +242,24 @@ struct SettingsView: View {
                     ProgressView().tint(.white)
                 }
             }
+
+            Button {
+                auth.errorMessage = nil
+                showEmailSignIn = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "envelope.fill").font(.nSans(15))
+                    Text("Sign in with Email")
+                        .font(.nSans(15, weight: .semibold))
+                }
+                .foregroundStyle(c.ink)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(c.surface)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(c.border, lineWidth: 1.5))
+            }
+            .buttonStyle(ScaleButtonStyle())
 
             if let error = auth.errorMessage {
                 Text(error)
@@ -930,7 +956,7 @@ private struct DataSubView: View {
             let row = [
                 df.string(from: s.startTime),
                 tf.string(from: s.startTime),
-                "\(s.durationMinutes)",
+                "\(s.totalActiveMinutes)",
                 "\(s.leftMinutesResolved)",
                 "\(s.rightMinutesResolved)",
                 side,

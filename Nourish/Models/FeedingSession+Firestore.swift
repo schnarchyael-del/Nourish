@@ -7,7 +7,7 @@ extension FeedingSession {
             "id":            id.uuidString,
             "startTime":     startTime,
             "feedType":      feedType.rawValue,
-            "durationMins":  durationMinutes,
+            "durationMins":  totalActiveMinutes,
         ]
         if let endTime           { data["endTime"] = endTime }
         if let leftDurationMins  { data["leftDurationMins"] = leftDurationMins }

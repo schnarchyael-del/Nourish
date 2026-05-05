@@ -5,10 +5,13 @@ struct StatsView: View {
     var onLogFirstSession: (() -> Void)? = nil
 
     @Environment(\.nourishColors) private var c
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \FeedingSession.startTime, order: SortOrder.reverse) private var sessions: [FeedingSession]
 
     @State private var selectedTab = 1   // 0=Day, 1=Week, 2=Month
     @State private var chartAnimated = false
+    @State private var sessionPendingDelete: FeedingSession?
+    @State private var editingSession: FeedingSession?
 
     // MARK: Computed stats
 
@@ -37,7 +40,7 @@ struct StatsView: View {
 
     private var avgDurationMins: Int {
         guard !breastSessions.isEmpty else { return 0 }
-        let total = breastSessions.reduce(0) { $0 + $1.durationMinutes }
+        let total = breastSessions.reduce(0) { $0 + $1.totalActiveMinutes }
         return total / breastSessions.count
     }
 
@@ -149,6 +152,36 @@ struct StatsView: View {
                 withAnimation { chartAnimated = true }
             }
         }
+        .alert(
+            "Delete this session?",
+            isPresented: Binding(
+                get: { sessionPendingDelete != nil },
+                set: { if !$0 { sessionPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { sessionPendingDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let s = sessionPendingDelete { performDelete(s) }
+                sessionPendingDelete = nil
+            }
+        } message: {
+            Text("This can't be undone.")
+        }
+        .sheet(item: $editingSession) { session in
+            LogSessionView(
+                editing: session,
+                onBack: { editingSession = nil },
+                onSave: { editingSession = nil }
+            )
+            .environment(\.nourishColors, c)
+        }
+    }
+
+    private func performDelete(_ session: FeedingSession) {
+        let id = session.id
+        modelContext.delete(session)
+        try? modelContext.save()
+        Task { await FirestoreService.shared.deleteSession(id: id) }
     }
 
     // MARK: Header
@@ -403,21 +436,37 @@ struct StatsView: View {
 
     // MARK: History list
 
+    @ViewBuilder
     private var historyList: some View {
-        ScrollView {
-            if sessions.isEmpty {
-                historyEmptyState
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(sessions) { session in
+        if sessions.isEmpty {
+            ScrollView { historyEmptyState }
+        } else {
+            List {
+                ForEach(sessions) { session in
+                    VStack(spacing: 0) {
                         historyRow(session)
-                        Divider()
-                            .overlay(c.border)
-                            .padding(.horizontal, 20)
+                        Divider().overlay(c.border).padding(.horizontal, 20)
+                    }
+                    .listRowBackground(c.bg)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets())
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            sessionPendingDelete = session
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        Button {
+                            editingSession = session
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(.blue)
                     }
                 }
-                .padding(.bottom, 20)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
     }
 

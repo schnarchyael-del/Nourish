@@ -104,6 +104,45 @@ final class AuthManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: Email + password
+
+    func signIn(email: String, password: String) async -> Bool {
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await Auth.auth().signIn(withEmail: email, password: password)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func createAccount(email: String, password: String) async -> Bool {
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await Auth.auth().createUser(withEmail: email, password: password)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func sendPasswordReset(email: String) async -> Bool {
+        errorMessage = nil
+        do {
+            try await Auth.auth().sendPasswordReset(withEmail: email)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     // MARK: Nonce
 
     private static func randomNonce(length: Int = 32) -> String {

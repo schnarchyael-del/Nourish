@@ -17,6 +17,7 @@ struct ActiveSessionView: View {
     @State private var msgIndex      = 0
     @State private var showAlarmModal = false
     @State private var alarmFired    = false
+    @State private var showDiscardConfirm = false
 
     // Captured at alarm-fire time so save closure has stable values
     @State private var capturedStartTime:    Date     = .now
@@ -183,12 +184,34 @@ struct ActiveSessionView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: showAlarmModal)
+        .alert("Discard this session?", isPresented: $showDiscardConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Discard", role: .destructive) {
+                store.cancel()
+            }
+        } message: {
+            Text("All data from this session will be lost.")
+        }
     }
 
     // MARK: Top bar
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 12) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showDiscardConfirm = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.nSans(13, weight: .semibold))
+                    .foregroundStyle(darkMode ? .white.opacity(0.78) : c.muted)
+                    .frame(width: 32, height: 32)
+                    .background(darkMode ? .white.opacity(0.07) : c.surface)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(darkMode ? .white.opacity(0.14) : c.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
             NourishPill(
                 label: "● \(side == .left ? "LEFT" : "RIGHT")",
                 fill: darkMode ? .white.opacity(0.1) : c.bgColor(for: side),

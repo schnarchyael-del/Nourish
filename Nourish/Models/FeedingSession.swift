@@ -75,18 +75,26 @@ final class FeedingSession {
         self.loggedByDeviceID = loggedByDeviceID
     }
 
+    /// Wall-clock duration including pauses. Kept for legacy fallback only.
     var durationSeconds: Int {
         max(0, Int((endTime ?? .now).timeIntervalSince(startTime)))
     }
 
     var durationMinutes: Int { durationSeconds / 60 }
 
+    /// Active feeding time = leftDuration + rightDuration (excludes pauses/gaps).
+    /// Falls back to wall-clock for legacy sessions that don't have splits.
+    var totalActiveMinutes: Int {
+        leftMinutesResolved + rightMinutesResolved
+    }
+
     var formattedDuration: String {
-        let mins = durationMinutes
-        let secs = durationSeconds % 60
-        if mins > 0 && secs > 0 { return "\(mins)m \(secs)s" }
+        let mins = totalActiveMinutes
         if mins > 0 { return "\(mins) min" }
-        return "\(secs) sec"
+        // Sessions under a minute (rare): show seconds from wall clock.
+        let secs = durationSeconds
+        if secs > 0 && secs < 60 { return "\(secs) sec" }
+        return "0 min"
     }
 
     var formattedTime: String {

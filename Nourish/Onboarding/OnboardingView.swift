@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 fileprivate enum OnboardingField: Hashable {
     case babyName, userName, partnerName
@@ -6,6 +7,7 @@ fileprivate enum OnboardingField: Hashable {
 
 struct OnboardingView: View {
     @Environment(\.nourishColors) private var c
+    @ObservedObject private var auth = AuthManager.shared
     let onComplete: () -> Void
 
     @State private var step = 0
@@ -15,6 +17,7 @@ struct OnboardingView: View {
     @State private var userName    = ""
     @State private var partnerName = ""
     @State private var showDOBPicker = false
+    @State private var showEmailSignIn = false
     @FocusState private var focus: OnboardingField?
 
     var body: some View {
@@ -28,13 +31,26 @@ struct OnboardingView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: step)
         .background(c.bg.ignoresSafeArea())
+        .sheet(isPresented: $showEmailSignIn) {
+            EmailSignInView()
+                .environment(\.nourishColors, c)
+                .presentationDetents([.fraction(0.875)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+        }
+        .onChange(of: auth.isSignedIn) { _, signedIn in
+            if signedIn && step == 0 {
+                showEmailSignIn = false
+                withAnimation { step = 1 }
+            }
+        }
     }
 
-    // MARK: Step 0 – Welcome
+    // MARK: Step 0 – Welcome + auth gateway
 
     private var welcomeStep: some View {
         VStack(spacing: 0) {
-            Spacer()
+            Spacer(minLength: 24)
 
             VStack(spacing: 0) {
                 ZStack {
@@ -45,50 +61,83 @@ struct OnboardingView: View {
                                 startPoint: .topLeading, endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 190, height: 190)
+                        .frame(width: 150, height: 150)
                         .overlay(Circle().stroke(c.border, lineWidth: 1.5))
                         .shadow(color: c.leftShadow, radius: 20, y: 8)
                     Text("🤱")
-                        .font(.nSans(72))
+                        .font(.nSans(56))
                 }
-                .padding(.bottom, 32)
+                .padding(.bottom, 22)
 
                 Text("Nourish")
-                    .font(.nSerif(44))
+                    .font(.nSerif(40))
                     .foregroundStyle(c.ink)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 8)
 
                 Text("Track every feeding with one tap.\nBuilt for tired, loving parents.")
-                    .font(.nSans(16))
+                    .font(.nSans(15))
                     .foregroundStyle(c.muted)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(6)
-                    .frame(maxWidth: 260)
+                    .lineSpacing(5)
+                    .frame(maxWidth: 280)
             }
 
-            Spacer()
+            Spacer(minLength: 24)
 
-            VStack(spacing: 12) {
-                ctaButton("Get started →") { step = 1 }
+            VStack(spacing: 10) {
+                ZStack {
+                    SignInWithAppleButton(.signIn,
+                        onRequest: { auth.configure($0) },
+                        onCompletion: { auth.handleAppleSignIn($0) }
+                    )
+                    .signInWithAppleButtonStyle(.white)
+                    .frame(height: 46)
+                    .cornerRadius(23)
+                    .disabled(auth.isWorking)
+                    .opacity(auth.isWorking ? 0.5 : 1)
 
-                VStack(spacing: 4) {
-                    HStack(spacing: 4) {
-                        Text("Already have an account?")
-                            .font(.nSans(14))
-                            .foregroundStyle(c.muted)
-                        Button("Sign in with email →") {}
-                            .font(.nSans(14, weight: .bold))
-                            .foregroundStyle(c.leftAccent)
-                            .buttonStyle(.plain)
+                    if auth.isWorking {
+                        ProgressView().tint(c.ink)
                     }
-                    Text("(coming soon — accounts are in development)")
-                        .font(.nSans(12))
-                        .foregroundStyle(c.muted)
-                        .italic()
                 }
+
+                Button {
+                    auth.errorMessage = nil
+                    showEmailSignIn = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "envelope.fill").font(.nSans(14))
+                        Text("Sign in with Email")
+                            .font(.nSans(15, weight: .semibold))
+                    }
+                    .foregroundStyle(c.leftText)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(c.leftBg)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(c.leftAccent.opacity(0.25), lineWidth: 1))
+                }
+                .buttonStyle(ScaleButtonStyle())
+
+                if let error = auth.errorMessage {
+                    Text(error)
+                        .font(.nSans(12))
+                        .foregroundStyle(.red.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 8)
+                }
+
+                Button("Continue without an account") {
+                    withAnimation { step = 1 }
+                }
+                .font(.nSans(13, weight: .semibold))
+                .foregroundStyle(c.muted)
+                .padding(.top, 6)
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 36)
+            .padding(.horizontal, 32)
+            .padding(.bottom, 32)
         }
     }
 

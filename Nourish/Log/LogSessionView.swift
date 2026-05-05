@@ -7,14 +7,39 @@ struct LogSessionView: View {
 
     let onBack: () -> Void
     let onSave: () -> Void
+    let editing: FeedingSession?
 
-    @State private var feedType: FeedType = .left
-    @State private var bottleContentType: BottleContentType = .breastmilk
-    @State private var startTime: Date = Calendar.current.date(byAdding: .minute, value: -24, to: .now) ?? .now
-    @State private var leftDurationMins: Int = 5
-    @State private var rightDurationMins: Int = 5
-    @State private var bottleAmountMl: Int = 120
+    @State private var feedType: FeedType
+    @State private var bottleContentType: BottleContentType
+    @State private var startTime: Date
+    @State private var leftDurationMins: Int
+    @State private var rightDurationMins: Int
+    @State private var bottleAmountMl: Int
     @State private var showDurationError = false
+
+    init(editing: FeedingSession? = nil,
+         onBack: @escaping () -> Void,
+         onSave: @escaping () -> Void) {
+        self.editing = editing
+        self.onBack = onBack
+        self.onSave = onSave
+
+        if let s = editing {
+            _feedType          = State(initialValue: s.feedType)
+            _bottleContentType = State(initialValue: s.bottleContentType ?? .breastmilk)
+            _startTime         = State(initialValue: s.startTime)
+            _leftDurationMins  = State(initialValue: s.leftDurationMins ?? 0)
+            _rightDurationMins = State(initialValue: s.rightDurationMins ?? 0)
+            _bottleAmountMl    = State(initialValue: s.bottleAmountMl ?? 120)
+        } else {
+            _feedType          = State(initialValue: .left)
+            _bottleContentType = State(initialValue: .breastmilk)
+            _startTime         = State(initialValue: Calendar.current.date(byAdding: .minute, value: -24, to: .now) ?? .now)
+            _leftDurationMins  = State(initialValue: 5)
+            _rightDurationMins = State(initialValue: 5)
+            _bottleAmountMl    = State(initialValue: 120)
+        }
+    }
 
     private var isBreast: Bool { feedType != .bottle }
 
@@ -78,7 +103,7 @@ struct LogSessionView: View {
             }
             .buttonStyle(.plain)
 
-            Text("Log a past session")
+            Text(editing == nil ? "Log a past session" : "Edit session")
                 .font(.nSerif(24))
                 .foregroundStyle(c.ink)
 
@@ -361,7 +386,7 @@ struct LogSessionView: View {
 
     private var saveButton: some View {
         Button(action: saveSession) {
-            Text("Save session")
+            Text(editing == nil ? "Save session" : "Save changes")
                 .font(.nSans(18, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
@@ -383,20 +408,33 @@ struct LogSessionView: View {
         let left  = isBreast ? leftDurationMins  : nil as Int?
         let right = isBreast ? rightDurationMins : nil as Int?
         let totalMins = isBreast ? (leftDurationMins + rightDurationMins) : 0
-        let endTime = startTime.addingTimeInterval(TimeInterval(totalMins * 60))
+        let computedEnd = startTime.addingTimeInterval(TimeInterval(totalMins * 60))
 
-        let session = FeedingSession(
-            startTime: startTime,
-            feedType: resolvedFeedType,
-            endTime: isBreast ? endTime : nil,
-            bottleContentType: feedType == .bottle ? bottleContentType : nil,
-            bottleAmountMl: feedType == .bottle ? bottleAmountMl : nil,
-            leftDurationMins: left,
-            rightDurationMins: right
-        )
-        modelContext.insert(session)
+        let target: FeedingSession
+        if let editing {
+            editing.startTime         = startTime
+            editing.feedType          = resolvedFeedType
+            editing.endTime           = isBreast ? computedEnd : nil
+            editing.bottleContentType = feedType == .bottle ? bottleContentType : nil
+            editing.bottleAmountMl    = feedType == .bottle ? bottleAmountMl : nil
+            editing.leftDurationMins  = left
+            editing.rightDurationMins = right
+            target = editing
+        } else {
+            let session = FeedingSession(
+                startTime: startTime,
+                feedType: resolvedFeedType,
+                endTime: isBreast ? computedEnd : nil,
+                bottleContentType: feedType == .bottle ? bottleContentType : nil,
+                bottleAmountMl: feedType == .bottle ? bottleAmountMl : nil,
+                leftDurationMins: left,
+                rightDurationMins: right
+            )
+            modelContext.insert(session)
+            target = session
+        }
         try? modelContext.save()
-        Task { await FirestoreService.shared.pushSession(session) }
+        Task { await FirestoreService.shared.pushSession(target) }
         onSave()
     }
 

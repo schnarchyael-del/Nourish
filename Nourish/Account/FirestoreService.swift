@@ -82,6 +82,19 @@ final class FirestoreService: ObservableObject {
         }
     }
 
+    /// Delete a session from Firestore. No-op when not signed in.
+    func deleteSession(id: UUID) async {
+        guard let uid = Auth.auth().currentUser?.uid,
+              !hasPendingAccountSwitch else { return }
+        do {
+            try await sessionsCollection(uid: uid)
+                .document(id.uuidString)
+                .delete()
+        } catch {
+            print("FirestoreService.deleteSession failed: \(error)")
+        }
+    }
+
     /// Push the @AppStorage baby profile to Firestore.
     func pushProfile() async {
         guard let uid = Auth.auth().currentUser?.uid,
