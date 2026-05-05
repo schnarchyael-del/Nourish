@@ -141,13 +141,17 @@ struct StatsView: View {
             }
         }
         .background(c.bg)
-        .onChange(of: selectedTab) {
+        .onChange(of: selectedTab) { _, newTab in
             chartAnimated = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 withAnimation { chartAnimated = true }
             }
+            if newTab == 3 {
+                AnalyticsService.historyViewed()
+            }
         }
         .onAppear {
+            AnalyticsService.statsViewed()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 withAnimation { chartAnimated = true }
             }
@@ -182,6 +186,7 @@ struct StatsView: View {
         modelContext.delete(session)
         try? modelContext.save()
         Task { await FirestoreService.shared.deleteSession(id: id) }
+        AnalyticsService.sessionDeleted()
     }
 
     // MARK: Header

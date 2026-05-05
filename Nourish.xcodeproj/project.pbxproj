@@ -10,6 +10,7 @@
 		FB10000100000000FB000001 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = FB10010100000000FB000001 /* FirebaseAuth */; };
 		FB10000200000000FB000001 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = FB10010200000000FB000001 /* FirebaseCore */; };
 		FB10000300000000FB000001 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FB10010300000000FB000001 /* FirebaseFirestore */; };
+		FB10000400000000FB000001 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = FB10010400000000FB000001 /* FirebaseAnalytics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 				FB10000100000000FB000001 /* FirebaseAuth in Frameworks */,
 				FB10000200000000FB000001 /* FirebaseCore in Frameworks */,
 				FB10000300000000FB000001 /* FirebaseFirestore in Frameworks */,
+				FB10000400000000FB000001 /* FirebaseAnalytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,6 +79,7 @@
 				FB10010100000000FB000001 /* FirebaseAuth */,
 				FB10010200000000FB000001 /* FirebaseCore */,
 				FB10010300000000FB000001 /* FirebaseFirestore */,
+				FB10010400000000FB000001 /* FirebaseAnalytics */,
 			);
 			productName = Nourish;
 			productReference = D88C2F3B2F9E0E4C00E02D22 /* Nourish.app */;
@@ -394,6 +397,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FB10020000000000FB000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		FB10010400000000FB000001 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB10020000000000FB000001 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -367,6 +367,7 @@ struct OnboardingView: View {
         UserDefaults.standard.set(babyGender, forKey: "babyGender")
         UserDefaults.standard.set(userName.isEmpty ? "You" : userName, forKey: "userName")
         UserDefaults.standard.set(partnerName, forKey: "partnerName")
+        AnalyticsService.babyProfileCreated()
         onComplete()
     }
 

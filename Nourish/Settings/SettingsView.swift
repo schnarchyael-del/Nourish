@@ -946,6 +946,7 @@ private struct DataSubView: View {
 
     private func exportSessions() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        AnalyticsService.exportCSV()
 
         let df = DateFormatter(); df.dateFormat = "d MMM yyyy"
         let tf = DateFormatter(); tf.dateFormat = "HH:mm"
@@ -1102,6 +1103,7 @@ private struct BabyEditView: View {
                         .padding(.bottom, 20)
                     saveButton {
                         nameFocused = false
+                        AnalyticsService.babyProfileEdited()
                         dismiss()
                     }
                 }

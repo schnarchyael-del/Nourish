@@ -435,6 +435,20 @@ struct LogSessionView: View {
         }
         try? modelContext.save()
         Task { await FirestoreService.shared.pushSession(target) }
+
+        if editing != nil {
+            AnalyticsService.sessionEdited()
+        } else if isBreast {
+            AnalyticsService.sessionCompleted(
+                totalSeconds: (leftDurationMins + rightDurationMins) * 60,
+                leftSeconds: leftDurationMins * 60,
+                rightSeconds: rightDurationMins * 60,
+                feedType: "breast"
+            )
+        } else {
+            AnalyticsService.sessionCompleted(totalSeconds: 0, leftSeconds: 0, rightSeconds: 0, feedType: "bottle")
+        }
+
         onSave()
     }
 

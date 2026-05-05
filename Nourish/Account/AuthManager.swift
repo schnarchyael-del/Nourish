@@ -88,6 +88,7 @@ final class AuthManager: NSObject, ObservableObject {
             Task {
                 do {
                     _ = try await Auth.auth().signIn(with: firebaseCredential)
+                    AnalyticsService.signInApple()
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -99,6 +100,7 @@ final class AuthManager: NSObject, ObservableObject {
     func signOut() {
         do {
             try Auth.auth().signOut()
+            AnalyticsService.signOut()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -112,6 +114,7 @@ final class AuthManager: NSObject, ObservableObject {
         defer { isWorking = false }
         do {
             _ = try await Auth.auth().signIn(withEmail: email, password: password)
+            AnalyticsService.signInEmail()
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -125,6 +128,7 @@ final class AuthManager: NSObject, ObservableObject {
         defer { isWorking = false }
         do {
             _ = try await Auth.auth().createUser(withEmail: email, password: password)
+            AnalyticsService.accountCreatedEmail()
             return true
         } catch {
             errorMessage = error.localizedDescription

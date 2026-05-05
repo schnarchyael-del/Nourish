@@ -197,6 +197,7 @@ struct HomeView: View {
         Button {
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
             store.start(side: side)
+            AnalyticsService.sessionStarted(startingSide: side.rawValue, feedType: "breast")
         } label: {
             VStack(spacing: 8) {
                 Text(side.label)

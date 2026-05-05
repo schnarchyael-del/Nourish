@@ -208,6 +208,8 @@ struct BottleFeedSheet: View {
         modelContext.insert(session)
         try? modelContext.save()
         Task { await FirestoreService.shared.pushSession(session) }
+        AnalyticsService.sessionStarted(startingSide: "bottle", feedType: "bottle")
+        AnalyticsService.sessionCompleted(totalSeconds: 0, leftSeconds: 0, rightSeconds: 0, feedType: "bottle")
         isPresented = false
     }
 }

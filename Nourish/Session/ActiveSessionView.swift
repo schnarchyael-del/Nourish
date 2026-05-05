@@ -172,6 +172,12 @@ struct ActiveSessionView: View {
                         modelContext.insert(session)
                         try? modelContext.save()
                         Task { await FirestoreService.shared.pushSession(session) }
+                        AnalyticsService.sessionCompleted(
+                            totalSeconds: (split.left + split.right) * 60,
+                            leftSeconds: split.left * 60,
+                            rightSeconds: split.right * 60,
+                            feedType: "breast"
+                        )
                         showAlarmModal = false
                     },
                     onDiscard: {
@@ -188,6 +194,7 @@ struct ActiveSessionView: View {
             Button("Cancel", role: .cancel) { }
             Button("Discard", role: .destructive) {
                 store.cancel()
+                AnalyticsService.sessionDiscarded()
             }
         } message: {
             Text("All data from this session will be lost.")
@@ -378,6 +385,12 @@ struct ActiveSessionView: View {
         modelContext.insert(session)
         try? modelContext.save()
         Task { await FirestoreService.shared.pushSession(session) }
+        AnalyticsService.sessionCompleted(
+            totalSeconds: (result.leftMins + result.rightMins) * 60,
+            leftSeconds: result.leftMins * 60,
+            rightSeconds: result.rightMins * 60,
+            feedType: "breast"
+        )
     }
 }
 
