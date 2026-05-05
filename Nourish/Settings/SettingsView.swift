@@ -118,11 +118,6 @@ struct SettingsView: View {
                 VStack(spacing: 0) {
                     accountSection
 
-                    settingsGroup("Profile") {
-                        row(icon: "👤", label: userName, sub: "Tap to edit profile",
-                            action: { activeSheet = .profile })
-                    }
-
                     settingsGroup("Baby") {
                         row(icon: "🍼", label: babyName, sub: "Baby's name",
                             action: { activeSheet = .baby })
@@ -171,75 +166,107 @@ struct SettingsView: View {
 
     private var accountSection: some View {
         settingsGroup("Account") {
-            if auth.isSignedIn {
-                signedInRow
-            } else {
-                signInPrompt
+            accountCard
+            if !auth.isSignedIn {
+                Divider().overlay(c.border).padding(.horizontal, 18)
+                signInButtons
             }
         }
     }
 
-    private var signedInRow: some View {
+    private var accountCard: some View {
         HStack(spacing: 14) {
-            Text("👤").font(.nSans(19))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(auth.displayLabel)
-                    .font(.nSans(15, weight: .semibold))
-                    .foregroundStyle(c.ink)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                HStack(spacing: 6) {
-                    if firestore.isSyncing {
-                        ProgressView().scaleEffect(0.7)
-                        Text("Syncing…")
-                            .font(.nSans(12))
-                            .foregroundStyle(c.muted)
-                    } else {
-                        Text("Synced to cloud")
-                            .font(.nSans(12))
-                            .foregroundStyle(c.muted)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                auth.signOut()
+                activeSheet = .baby
             } label: {
-                Text("Sign Out")
-                    .font(.nSans(13))
-                    .foregroundStyle(c.muted)
-                    .padding(.horizontal, 12)
-                    .frame(height: 32)
-                    .overlay(Capsule().stroke(c.border, lineWidth: 1))
-                    .clipShape(Capsule())
+                HStack(spacing: 14) {
+                    Text("👤").font(.nSans(19))
+                    accountCardLabels
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            if auth.isSignedIn {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    auth.signOut()
+                } label: {
+                    Text("Sign Out")
+                        .font(.nSans(13))
+                        .foregroundStyle(c.muted)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .overlay(Capsule().stroke(c.border, lineWidth: 1))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.nSans(13, weight: .semibold))
+                    .foregroundStyle(c.muted.opacity(0.45))
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
     }
 
-    private var signInPrompt: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Sign in to back up your sessions and sync them across devices.")
-                .font(.nSans(13))
-                .foregroundStyle(c.muted)
-                .lineSpacing(4)
+    @ViewBuilder
+    private var accountCardLabels: some View {
+        if auth.isSignedIn {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(auth.displayLabel)
+                    .font(.nSans(15, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(babyName.isEmpty ? "Tap to add baby" : babyName)
+                    .font(.nSans(13))
+                    .foregroundStyle(c.muted)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if firestore.isSyncing {
+                        ProgressView().scaleEffect(0.6)
+                        Text("Syncing…")
+                            .font(.nSans(11))
+                            .foregroundStyle(c.muted)
+                    } else {
+                        Text("Synced to cloud")
+                            .font(.nSans(11))
+                            .foregroundStyle(c.muted)
+                    }
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(babyName.isEmpty ? "Tap to edit profile" : babyName)
+                    .font(.nSans(15, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("Sign in to sync")
+                    .font(.nSans(12))
+                    .foregroundStyle(c.muted)
+            }
+        }
+    }
 
+    private var signInButtons: some View {
+        VStack(alignment: .leading, spacing: 10) {
             ZStack {
                 SignInWithAppleButton(.signIn,
                     onRequest: { auth.configure($0) },
                     onCompletion: { auth.handleAppleSignIn($0) }
                 )
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .clipShape(Capsule())
+                .signInWithAppleButtonStyle(.white)
+                .frame(height: 46)
+                .cornerRadius(23)
                 .disabled(auth.isWorking)
                 .opacity(auth.isWorking ? 0.5 : 1)
 
                 if auth.isWorking {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(c.ink)
                 }
             }
 
@@ -248,16 +275,16 @@ struct SettingsView: View {
                 showEmailSignIn = true
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "envelope.fill").font(.nSans(15))
+                    Image(systemName: "envelope.fill").font(.nSans(14))
                     Text("Sign in with Email")
                         .font(.nSans(15, weight: .semibold))
                 }
-                .foregroundStyle(c.ink)
+                .foregroundStyle(c.leftText)
                 .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(c.surface)
+                .frame(height: 46)
+                .background(c.leftBg)
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(c.border, lineWidth: 1.5))
+                .overlay(Capsule().stroke(c.leftAccent.opacity(0.25), lineWidth: 1))
             }
             .buttonStyle(ScaleButtonStyle())
 
@@ -268,7 +295,8 @@ struct SettingsView: View {
                     .lineSpacing(3)
             }
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
     // MARK: Notifications section
