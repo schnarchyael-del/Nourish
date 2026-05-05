@@ -177,7 +177,7 @@ struct SettingsView: View {
     private var accountCard: some View {
         HStack(spacing: 14) {
             Button {
-                activeSheet = .baby
+                activeSheet = .profile
             } label: {
                 HStack(spacing: 14) {
                     Text("👤").font(.nSans(19))
@@ -216,15 +216,16 @@ struct SettingsView: View {
     private var accountCardLabels: some View {
         if auth.isSignedIn {
             VStack(alignment: .leading, spacing: 3) {
-                Text(auth.displayLabel)
+                Text(userName.isEmpty ? "You" : userName)
                     .font(.nSans(15, weight: .semibold))
                     .foregroundStyle(c.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(babyName.isEmpty ? "Tap to add baby" : babyName)
-                    .font(.nSans(13))
+                Text(auth.displayLabel)
+                    .font(.nSans(12))
                     .foregroundStyle(c.muted)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 HStack(spacing: 6) {
                     if firestore.isSyncing {
                         ProgressView().scaleEffect(0.6)
@@ -240,12 +241,12 @@ struct SettingsView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 3) {
-                Text(babyName.isEmpty ? "Tap to edit profile" : babyName)
+                Text(userName.isEmpty ? "Tap to edit profile" : userName)
                     .font(.nSans(15, weight: .semibold))
                     .foregroundStyle(c.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Sign in to sync")
+                Text("Sign in to sync your sessions")
                     .font(.nSans(12))
                     .foregroundStyle(c.muted)
             }
