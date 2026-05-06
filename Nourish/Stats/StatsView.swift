@@ -99,10 +99,6 @@ struct StatsView: View {
 
     private var maxBarValue: Int { max(1, chartBarData.map { $0.count }.max() ?? 1) }
 
-    private var leftPct:   Double { filteredSessions.isEmpty ? 0 : Double(leftSessions.count) / Double(filteredSessions.count) }
-    private var rightPct:  Double { filteredSessions.isEmpty ? 0 : Double(rightSessions.count) / Double(filteredSessions.count) }
-    private var bottlePct: Double { filteredSessions.isEmpty ? 0 : Double(bottleSessions.count) / Double(filteredSessions.count) }
-
     private var avgLeftMins: Int {
         let mins = breastSessions.map(\.leftMinutesResolved).filter { $0 > 0 }
         guard !mins.isEmpty else { return 0 }
@@ -313,11 +309,18 @@ struct StatsView: View {
         }
     }
 
-    // MARK: Breast vs Bottle
+    // MARK: Feed breakdown
+
+    private var hasBottleFeeds: Bool { !bottleSessions.isEmpty }
+
+    private var bottleFractionOfTotal: Double {
+        guard !filteredSessions.isEmpty else { return 0 }
+        return Double(bottleSessions.count) / Double(filteredSessions.count)
+    }
 
     private var breastVsBottleCard: some View {
         card {
-            cardTitle("Breast vs Bottle")
+            cardTitle("Feed breakdown")
 
             if filteredSessions.isEmpty {
                 Text("No sessions yet")
@@ -326,79 +329,114 @@ struct StatsView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             } else {
-                // Stacked bar
-                GeometryReader { geo in
-                    HStack(spacing: 3) {
-                        if leftPct > 0 {
-                            Capsule()
-                                .fill(c.leftAccent)
-                                .frame(width: geo.size.width * leftPct)
-                        }
-                        if rightPct > 0 {
-                            Capsule()
-                                .fill(c.rightAccent)
-                                .frame(width: geo.size.width * rightPct)
-                        }
-                        if bottlePct > 0 {
-                            Capsule()
-                                .fill(Color(hex: "C4A265"))
-                                .frame(maxWidth: .infinity)
-                        }
+                feedBreakdownContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var feedBreakdownContent: some View {
+        feedBreakdownBar
+            .padding(.bottom, 12)
+        if hasBottleFeeds {
+            bottleTypeBreakdown
+        }
+    }
+
+    // MARK: Adaptive single-row bar
+
+    private var leftFractionOfTotal: Double {
+        guard !filteredSessions.isEmpty else { return 0 }
+        return Double(leftSessions.count) / Double(filteredSessions.count)
+    }
+
+    private var rightFractionOfTotal: Double {
+        guard !filteredSessions.isEmpty else { return 0 }
+        return Double(rightSessions.count) / Double(filteredSessions.count)
+    }
+
+    private var feedBreakdownBar: some View {
+        VStack(spacing: 8) {
+            GeometryReader { geo in
+                HStack(spacing: 3) {
+                    if leftFractionOfTotal > 0 {
+                        Capsule()
+                            .fill(c.leftAccent)
+                            .frame(width: geo.size.width * leftFractionOfTotal)
+                    }
+                    if rightFractionOfTotal > 0 {
+                        Capsule()
+                            .fill(c.rightAccent)
+                            .frame(width: geo.size.width * rightFractionOfTotal)
+                    }
+                    if bottleFractionOfTotal > 0 {
+                        Capsule()
+                            .fill(c.bottleAccent)
+                            .frame(maxWidth: .infinity)
                     }
                 }
-                .frame(height: 16)
-                .padding(.bottom, 8)
+            }
+            .frame(height: 16)
 
-                HStack {
-                    legendDot(color: c.leftAccent, label: "Left \(Int(leftPct * 100))%")
+            HStack {
+                if leftFractionOfTotal > 0 {
+                    legendDot(color: c.leftAccent, label: "Left \(percent(leftFractionOfTotal))%")
+                }
+                if rightFractionOfTotal > 0 {
                     Spacer()
-                    legendDot(color: c.rightAccent, label: "Right \(Int(rightPct * 100))%")
+                    legendDot(color: c.rightAccent, label: "Right \(percent(rightFractionOfTotal))%")
+                }
+                if bottleFractionOfTotal > 0 {
                     Spacer()
                     HStack(spacing: 4) {
                         Text("🍼").font(.nSans(12))
-                        Text("Bottle \(Int(bottlePct * 100))%")
+                        Text("Bottle \(percent(bottleFractionOfTotal))%")
                             .font(.nSans(12, weight: .semibold))
                             .foregroundStyle(c.bottleAccent)
                     }
                 }
-                .padding(.bottom, 12)
-
-                if !bottleSessions.isEmpty {
-                    Divider().overlay(c.border).padding(.bottom, 10)
-
-                    Text("Bottle type")
-                        .font(.nSans(11, weight: .bold))
-                        .foregroundStyle(c.muted)
-                        .kerning(0.08 * 11)
-                        .textCase(.uppercase)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, 7)
-
-                    HStack(spacing: 8) {
-                        ForEach(BottleContentType.allCases, id: \.rawValue) { type in
-                            let count = bottleSessions.filter { $0.bottleContentType == type }.count
-                            HStack(spacing: 7) {
-                                Text(type.icon).font(.nSans(16))
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(type.displayName)
-                                        .font(.nSans(13, weight: .bold))
-                                        .foregroundStyle(c.bottleAccent)
-                                    Text("\(count) session\(count == 1 ? "" : "s")")
-                                        .font(.nSans(11))
-                                        .foregroundStyle(c.muted)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
-                            .background(c.bottleBg)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.bottleBorder, lineWidth: 1))
-                        }
-                    }
-                }
             }
         }
+    }
+
+    @ViewBuilder
+    private var bottleTypeBreakdown: some View {
+        Divider().overlay(c.border).padding(.bottom, 10)
+
+        Text("Bottle type")
+            .font(.nSans(11, weight: .bold))
+            .foregroundStyle(c.muted)
+            .kerning(0.08 * 11)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 7)
+
+        HStack(spacing: 8) {
+            ForEach(BottleContentType.allCases, id: \.rawValue) { type in
+                let count = bottleSessions.filter { $0.bottleContentType == type }.count
+                HStack(spacing: 7) {
+                    Text(type.icon).font(.nSans(16))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(type.displayName)
+                            .font(.nSans(13, weight: .bold))
+                            .foregroundStyle(c.bottleAccent)
+                        Text("\(count) session\(count == 1 ? "" : "s")")
+                            .font(.nSans(11))
+                            .foregroundStyle(c.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(c.bottleBg)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.bottleBorder, lineWidth: 1))
+            }
+        }
+    }
+
+    private func percent(_ fraction: Double) -> Int {
+        Int((fraction * 100).rounded())
     }
 
     private func legendDot(color: Color, label: String) -> some View {
@@ -496,21 +534,27 @@ struct StatsView: View {
                 }
             }
 
-            // Date + time
+            // Left block — date on top, time + total below (or just time for bottle)
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.startTime.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
                     .font(.nSans(14, weight: .semibold))
                     .foregroundStyle(c.ink)
-                Text(s.startTime.formatted(date: .omitted, time: .shortened))
-                    .font(.nSans(12))
-                    .foregroundStyle(c.muted)
+                if s.feedType == .bottle {
+                    Text(s.startTime.formatted(date: .omitted, time: .shortened))
+                        .font(.nSans(12))
+                        .foregroundStyle(c.muted)
+                } else {
+                    Text(historyTimeAndTotal(s))
+                        .font(.nSans(12))
+                        .foregroundStyle(c.muted)
+                }
             }
 
             Spacer()
 
-            // Duration pill
-            VStack(alignment: .trailing, spacing: 2) {
-                if s.feedType == .bottle {
+            // Right block — bottle: ml + type. Breast: per-side durations.
+            if s.feedType == .bottle {
+                VStack(alignment: .trailing, spacing: 2) {
                     Text(s.bottleAmountMl.map { "\($0) ml" } ?? "—")
                         .font(.nSans(14, weight: .bold))
                         .foregroundStyle(c.bottleAccent)
@@ -519,15 +563,35 @@ struct StatsView: View {
                             .font(.nSans(11))
                             .foregroundStyle(c.muted)
                     }
-                } else {
-                    Text(s.formattedDuration)
-                        .font(.nSans(14, weight: .bold))
-                        .foregroundStyle(s.feedType == .left ? c.leftText : c.rightText)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    if s.leftMinutesResolved > 0 {
+                        Text("L: \(formatMins(s.leftMinutesResolved))")
+                            .font(.nSans(13, weight: .semibold))
+                            .foregroundStyle(c.leftText)
+                    }
+                    if s.rightMinutesResolved > 0 {
+                        Text("R: \(formatMins(s.rightMinutesResolved))")
+                            .font(.nSans(13, weight: .semibold))
+                            .foregroundStyle(c.rightText)
+                    }
                 }
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+    }
+
+    /// "16:22 · Total: 17:00" — start time + total active duration.
+    private func historyTimeAndTotal(_ s: FeedingSession) -> String {
+        let time = s.startTime.formatted(date: .omitted, time: .shortened)
+        let total = s.leftMinutesResolved + s.rightMinutesResolved
+        return "\(time) · Total: \(formatMins(total))"
+    }
+
+    private func formatMins(_ minutes: Int) -> String {
+        String(format: "%d:%02d", minutes, 0)
     }
 
     // MARK: Empty states

@@ -236,14 +236,33 @@ struct ActiveSessionView: View {
     // MARK: Timer
 
     private var timerHero: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Text(store.isPaused ? "paused" : "session time")
                 .font(.nSans(11, weight: .semibold))
                 .foregroundStyle(labelColor)
                 .kerning(0.18 * 11)
                 .textCase(.uppercase)
 
-            Text(store.formattedTime)
+            // Completed-side line (only after a switch)
+            if let completed = store.formattedCompletedSideTime,
+               let startSide = store.startSide {
+                HStack(spacing: 6) {
+                    Text("\(startSide.name):")
+                        .font(.nSans(13))
+                        .foregroundStyle(labelColor)
+                    Text(completed)
+                        .font(.nSans(13, weight: .semibold))
+                        .foregroundStyle(
+                            darkMode
+                                ? .white.opacity(0.55)
+                                : c.accentColor(for: startSide)
+                        )
+                        .contentTransition(.numericText())
+                }
+            }
+
+            // Big counter — current-side time after a switch, total before.
+            Text(store.formattedCurrentSideTime)
                 .font(.nSerif(92))
                 .foregroundStyle(timerColor)
                 .opacity(store.isPaused ? 0.42 : 1.0)
@@ -254,6 +273,19 @@ struct ActiveSessionView: View {
                 .animation(.easeInOut(duration: 0.4), value: store.isPaused)
                 .animation(.easeInOut(duration: 0.4), value: timerGlow)
                 .contentTransition(.numericText())
+
+            // Total line (only after a switch — before, big counter == total)
+            if store.completedSideSeconds != nil {
+                HStack(spacing: 6) {
+                    Text("Total:")
+                        .font(.nSans(12))
+                        .foregroundStyle(labelColor)
+                    Text(store.formattedTotalTime)
+                        .font(.nSans(12, weight: .semibold))
+                        .foregroundStyle(labelColor)
+                        .contentTransition(.numericText())
+                }
+            }
 
             Text("\(side.name) breast · started \(startTimeLabel)")
                 .font(.nSans(14))

@@ -132,9 +132,30 @@ final class SessionStore {
     }
 
     var formattedTime: String {
-        let mins = String(format: "%02d", elapsedSeconds / 60)
-        let secs = String(format: "%02d", elapsedSeconds % 60)
-        return "\(mins):\(secs)"
+        Self.formatMMSS(elapsedSeconds)
+    }
+
+    /// Seconds spent on the current side. Equals total elapsed when no switch yet.
+    var currentSideSeconds: Int {
+        guard let switched = switchedAtSeconds else { return elapsedSeconds }
+        return max(0, elapsedSeconds - switched)
+    }
+
+    /// Seconds completed on the previous side, or nil if user hasn't switched.
+    var completedSideSeconds: Int? {
+        switchedAtSeconds
+    }
+
+    var formattedCurrentSideTime: String { Self.formatMMSS(currentSideSeconds) }
+    var formattedTotalTime: String { Self.formatMMSS(elapsedSeconds) }
+    var formattedCompletedSideTime: String? {
+        completedSideSeconds.map(Self.formatMMSS)
+    }
+
+    static func formatMMSS(_ seconds: Int) -> String {
+        let m = max(0, seconds) / 60
+        let s = max(0, seconds) % 60
+        return String(format: "%02d:%02d", m, s)
     }
 
     // MARK: Private
