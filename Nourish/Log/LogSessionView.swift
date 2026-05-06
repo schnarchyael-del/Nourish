@@ -435,6 +435,7 @@ struct LogSessionView: View {
         }
         try? modelContext.save()
         Task { await FirestoreService.shared.pushSession(target) }
+        NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
 
         if editing != nil {
             AnalyticsService.sessionEdited()

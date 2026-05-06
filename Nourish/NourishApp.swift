@@ -6,8 +6,6 @@ struct NourishApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     @AppStorage("hasRequestedNotifPermission") private var hasRequestedPermission = false
-    @AppStorage("reminderEnabled") private var reminderEnabled = false
-    @AppStorage("reminderHours")   private var reminderHours: Double = 3
 
     static let modelContainer: ModelContainer = {
         do {
@@ -27,9 +25,7 @@ struct NourishApp: App {
                         NotificationManager.shared.requestPermission()
                         hasRequestedPermission = true
                     }
-                    if reminderEnabled {
-                        NotificationManager.shared.updateReminder(enabled: true, hours: reminderHours)
-                    }
+                    NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
                 }
         }
         .modelContainer(NourishApp.modelContainer)

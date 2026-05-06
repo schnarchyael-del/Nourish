@@ -52,6 +52,17 @@ final class SessionStore {
         accumulatedPausedSeconds = 0
         persist()
         startTimer()
+
+        // Active feed in progress — pull any pending feed reminder so it doesn't
+        // fire mid-session. It'll be re-scheduled when the session is saved.
+        NotificationManager.shared.cancelReminder()
+
+        // Schedule a background notification mirroring the in-app alarm.
+        let alarmEnabled = (UserDefaults.standard.object(forKey: "alarmEnabled") as? Bool) ?? true
+        let alarmMinutes = (UserDefaults.standard.object(forKey: "alarmMinutes") as? Int) ?? 45
+        if alarmEnabled, alarmMinutes > 0 {
+            NotificationManager.shared.scheduleSessionAlarm(seconds: TimeInterval(alarmMinutes * 60))
+        }
     }
 
     func pause() {
@@ -99,6 +110,7 @@ final class SessionStore {
                                       totalSeconds: elapsedSeconds)
         clearPersisted()
         reset()
+        NotificationManager.shared.cancelSessionAlarm()
         return (startTime, start.feedType, endTime, split.left, split.right)
     }
 
@@ -129,6 +141,7 @@ final class SessionStore {
         stopTimer()
         clearPersisted()
         reset()
+        NotificationManager.shared.cancelSessionAlarm()
     }
 
     var formattedTime: String {

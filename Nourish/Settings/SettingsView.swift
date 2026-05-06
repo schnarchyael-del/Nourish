@@ -78,12 +78,11 @@ struct SettingsView: View {
             .onAppear {
                 if familyCode.isEmpty { familyCode = Self.generateFamilyCode() }
             }
-            .onChange(of: reminderEnabled) { _, v in
-                NotificationManager.shared.updateReminder(enabled: v, hours: reminderHours)
+            .onChange(of: reminderEnabled) { _, _ in
+                NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
             }
-            .onChange(of: reminderHours) { _, v in
-                guard reminderEnabled else { return }
-                NotificationManager.shared.updateReminder(enabled: true, hours: v)
+            .onChange(of: reminderHours) { _, _ in
+                NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
             }
     }
 
@@ -887,12 +886,11 @@ private struct ReminderSubView: View {
             }
         }
         .background(c.bg.ignoresSafeArea())
-        .onChange(of: reminderEnabled) { _, v in
-            NotificationManager.shared.updateReminder(enabled: v, hours: reminderHours)
+        .onChange(of: reminderEnabled) { _, _ in
+            NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
         }
-        .onChange(of: reminderHours) { _, v in
-            guard reminderEnabled else { return }
-            NotificationManager.shared.updateReminder(enabled: true, hours: v)
+        .onChange(of: reminderHours) { _, _ in
+            NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
         }
     }
 }
