@@ -13,8 +13,6 @@ APP_BUNDLE_ID="com.yael.nourish"
 WIDGET_BUNDLE_ID="com.yael.nourish.NourishWidget"
 TEAM_ID="K623VDGZF8"
 SIGN_IDENTITY="Apple Distribution"
-APP_PROFILE="Nourish App Store"
-WIDGET_PROFILE="Nourish Widget App Store"
 PBX="Nourish.xcodeproj/project.pbxproj"
 ARCHIVE_PATH="/tmp/Nourish.xcarchive"
 EXPORT_DIR="/tmp/NourishExport"
@@ -53,28 +51,8 @@ if ! security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
   exit 1
 fi
 
-check_profile() {
-  local profile_name="$1"
-  for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
-             "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
-    [[ -d "$dir" ]] || continue
-    for p in "$dir"/*.mobileprovision; do
-      [[ -e "$p" ]] || continue
-      if security cms -D -i "$p" 2>/dev/null | grep -q "<string>$profile_name</string>"; then
-        return 0
-      fi
-    done
-  done
-  return 1
-}
-
-for profile in "$APP_PROFILE" "$WIDGET_PROFILE"; do
-  if ! check_profile "$profile"; then
-    echo "ERROR: Provisioning profile '$profile' not installed." >&2
-    echo "Download from developer.apple.com -> Profiles, then double-click." >&2
-    exit 1
-  fi
-done
+# Profile presence is no longer pre-validated; -allowProvisioningUpdates lets
+# xcodebuild fetch what it needs from App Store Connect at archive time.
 
 rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR"
 
@@ -101,16 +79,7 @@ cat > "$EXPORT_PLIST" <<PLIST
     <key>teamID</key>
     <string>$TEAM_ID</string>
     <key>signingStyle</key>
-    <string>manual</string>
-    <key>signingCertificate</key>
-    <string>$SIGN_IDENTITY</string>
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>$APP_BUNDLE_ID</key>
-        <string>$APP_PROFILE</string>
-        <key>$WIDGET_BUNDLE_ID</key>
-        <string>$WIDGET_PROFILE</string>
-    </dict>
+    <string>automatic</string>
     <key>stripSwiftSymbols</key>
     <true/>
     <key>uploadSymbols</key>
