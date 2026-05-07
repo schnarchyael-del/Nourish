@@ -38,7 +38,7 @@ private struct CircularLockView: View {
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
-            if snapshot.isSessionActive, let start = snapshot.activeSessionStart {
+            if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
                 VStack(spacing: 0) {
                     HStack(spacing: 2) {
                         Circle().frame(width: 5, height: 5)
@@ -81,7 +81,7 @@ private struct RectangularLockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            if snapshot.isSessionActive, let start = snapshot.activeSessionStart {
+            if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
                 HStack(spacing: 4) {
                     Circle().frame(width: 6, height: 6)
                     Text("Nourish · Feeding now")
@@ -131,7 +131,7 @@ private struct InlineLockView: View {
     let snapshot: FeedSnapshot
 
     var body: some View {
-        if snapshot.isSessionActive, let start = snapshot.activeSessionStart {
+        if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
             Text("Nourish · Feeding \(FeedFormat.sideLetter(from: snapshot.activeSessionSide)) · ")
             + Text(start, style: .timer)
         } else if let date = snapshot.lastFeedTime {

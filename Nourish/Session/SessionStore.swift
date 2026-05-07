@@ -29,6 +29,14 @@ final class SessionStore {
 
     init() {
         recoverSession()
+        // If recovery didn't restore a session but the widget snapshot still
+        // claims one is active (e.g. force-quit mid-session, never reopened
+        // until now), clear it so the widget doesn't get stuck on
+        // "Feeding now" indefinitely.
+        if !isActive {
+            SharedFeedSnapshot.clearActiveSession()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
         NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,

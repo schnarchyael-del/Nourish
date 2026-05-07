@@ -73,6 +73,16 @@ struct FeedSnapshot {
     var hasData: Bool { lastFeedTime != nil }
     var isBreast: Bool { lastFeedType == "breast" }
     var isBottle: Bool { lastFeedType == "bottle" }
+
+    /// True only if the snapshot says a session is active AND the start time
+    /// is recent. Treats stale active flags (force-quit during a session,
+    /// app crash, slow widget reload after end) as "not active" so the
+    /// widget can never get permanently stuck on "Feeding now".
+    var isActuallyActive: Bool {
+        guard isSessionActive, let start = activeSessionStart else { return false }
+        // 6-hour ceiling — no real feeding session lasts that long.
+        return Date.now.timeIntervalSince(start) < 6 * 3600
+    }
 }
 
 enum SharedKey {

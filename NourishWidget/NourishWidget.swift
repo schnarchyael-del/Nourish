@@ -99,7 +99,7 @@ private struct HomeWidgetView: View {
     let snapshot: FeedSnapshot
 
     var body: some View {
-        if snapshot.isSessionActive, snapshot.activeSessionStart != nil {
+        if snapshot.isActuallyActive {
             ActiveSmallHomeView(snapshot: snapshot)
         } else if snapshot.hasData {
             SmallHomeView(snapshot: snapshot)
