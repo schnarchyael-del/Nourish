@@ -173,6 +173,7 @@ struct ActiveSessionView: View {
                         try? modelContext.save()
                         Task { await FirestoreService.shared.pushSession(session) }
                         NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+                        SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
                         AnalyticsService.sessionCompleted(
                             totalSeconds: (split.left + split.right) * 60,
                             leftSeconds: split.left * 60,
@@ -419,6 +420,7 @@ struct ActiveSessionView: View {
         try? modelContext.save()
         Task { await FirestoreService.shared.pushSession(session) }
         NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+        SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
         AnalyticsService.sessionCompleted(
             totalSeconds: (result.leftMins + result.rightMins) * 60,
             leftSeconds: result.leftMins * 60,

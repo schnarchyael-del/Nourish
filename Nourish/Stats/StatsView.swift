@@ -185,6 +185,7 @@ struct StatsView: View {
         try? modelContext.save()
         Task { await FirestoreService.shared.deleteSession(id: id) }
         NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+        SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
         AnalyticsService.sessionDeleted()
     }
 

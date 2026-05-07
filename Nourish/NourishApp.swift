@@ -26,6 +26,7 @@ struct NourishApp: App {
                         hasRequestedPermission = true
                     }
                     NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+                    SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
                 }
         }
         .modelContainer(NourishApp.modelContainer)

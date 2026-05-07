@@ -1,0 +1,195 @@
+import WidgetKit
+import SwiftUI
+
+// MARK: - Nourish palette (mirrors main app)
+
+enum NourishWidgetColor {
+    static let bg       = Color(red: 250/255, green: 247/255, blue: 242/255)
+    static let ink      = Color(red:  44/255, green:  24/255, blue:  16/255)
+    static let muted    = Color(red: 158/255, green: 142/255, blue: 134/255)
+    static let leftBg   = Color(red: 247/255, green: 232/255, blue: 224/255)
+    static let leftFg   = Color(red: 192/255, green:  88/255, blue:  64/255)  // terra
+    static let rightBg  = Color(red: 226/255, green: 235/255, blue: 240/255)
+    static let rightFg  = Color(red:  72/255, green: 116/255, blue: 154/255)  // blue
+    static let bottleBg = Color(red: 245/255, green: 235/255, blue: 215/255)
+    static let bottleFg = Color(red: 196/255, green: 162/255, blue: 101/255)
+    static let border   = Color(red:  44/255, green:  24/255, blue:  16/255).opacity(0.10)
+}
+
+private extension String {
+    var sideForegroundColor: Color {
+        switch self {
+        case "left":   return NourishWidgetColor.leftFg
+        case "right":  return NourishWidgetColor.rightFg
+        case "bottle": return NourishWidgetColor.bottleFg
+        default:       return NourishWidgetColor.muted
+        }
+    }
+    var sideBackgroundColor: Color {
+        switch self {
+        case "left":   return NourishWidgetColor.leftBg
+        case "right":  return NourishWidgetColor.rightBg
+        case "bottle": return NourishWidgetColor.bottleBg
+        default:       return NourishWidgetColor.bg
+        }
+    }
+}
+
+// MARK: - Side badge (used everywhere)
+
+struct SideBadge: View {
+    let side: String
+    var size: CGFloat = 32
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(side.sideBackgroundColor)
+                .overlay(Circle().stroke(side.sideForegroundColor.opacity(0.25), lineWidth: 1))
+            Text(FeedFormat.sideLetter(from: side))
+                .font(.system(size: size * 0.5, weight: .bold, design: .rounded))
+                .foregroundStyle(side.sideForegroundColor)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: - Brand header
+
+struct NourishBrand: View {
+    var iconSize: CGFloat = 14
+    var showWordmark: Bool = true
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image("NourishLogo")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: iconSize, height: iconSize)
+                .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.22, style: .continuous))
+            if showWordmark {
+                Text("Nourish")
+                    .font(.system(size: 11, weight: .bold, design: .serif))
+                    .foregroundStyle(NourishWidgetColor.ink)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+    }
+}
+
+// MARK: - Home Screen Widget
+
+struct NourishHomeWidget: Widget {
+    let kind = "NourishHomeWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: NourishProvider()) { entry in
+            HomeWidgetView(snapshot: entry.snapshot)
+                .containerBackground(NourishWidgetColor.bg, for: .widget)
+                .widgetURL(URL(string: "nourish://home"))
+        }
+        .configurationDisplayName("Nourish — Last feed")
+        .description("Your last feed at a glance.")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
+private struct HomeWidgetView: View {
+    let snapshot: FeedSnapshot
+
+    var body: some View {
+        if snapshot.hasData {
+            SmallHomeView(snapshot: snapshot)
+        } else {
+            EmptyHomeView()
+        }
+    }
+}
+
+private struct EmptyHomeView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            NourishBrand()
+            Spacer()
+            Text("🌱")
+                .font(.system(size: 32))
+            Text("Start your first feed")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(NourishWidgetColor.ink)
+            Text("Tap to open Nourish")
+                .font(.system(size: 11))
+                .foregroundStyle(NourishWidgetColor.muted)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Per-side line (helper used in multiple sizes)
+
+private struct SidesBreakdown: View {
+    let snapshot: FeedSnapshot
+    var compact: Bool = false
+
+    var body: some View {
+        HStack(spacing: compact ? 8 : 12) {
+            if snapshot.isBottle {
+                Text(snapshot.lastFeedBottleMl > 0 ? "\(snapshot.lastFeedBottleMl) ml" : "Bottle feed")
+                    .font(.system(size: compact ? 12 : 13, weight: .semibold))
+                    .foregroundStyle(NourishWidgetColor.bottleFg)
+            } else {
+                if snapshot.lastFeedLeftMinutes > 0 {
+                    sidePill("L \(snapshot.lastFeedLeftMinutes)m",
+                             color: NourishWidgetColor.leftFg)
+                }
+                if snapshot.lastFeedRightMinutes > 0 {
+                    sidePill("R \(snapshot.lastFeedRightMinutes)m",
+                             color: NourishWidgetColor.rightFg)
+                }
+            }
+        }
+    }
+
+    private func sidePill(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: compact ? 12 : 13, weight: .semibold))
+            .foregroundStyle(color)
+    }
+}
+
+// MARK: - Small
+
+private struct SmallHomeView: View {
+    let snapshot: FeedSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NourishBrand(iconSize: 14)
+
+            HStack(spacing: 10) {
+                SideBadge(side: snapshot.lastFeedSide, size: 36)
+                Text(FeedFormat.timeAgo(from: snapshot.lastFeedTime))
+                    .font(.system(size: 18, weight: .bold, design: .serif))
+                    .foregroundStyle(NourishWidgetColor.ink)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+            }
+
+            SidesBreakdown(snapshot: snapshot, compact: true)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 4) {
+                Text("Today:")
+                    .font(.system(size: 10))
+                    .foregroundStyle(NourishWidgetColor.muted)
+                Text("\(snapshot.todaySessionCount) feeds · \(snapshot.todayTotalMinutes)m")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(NourishWidgetColor.ink)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+

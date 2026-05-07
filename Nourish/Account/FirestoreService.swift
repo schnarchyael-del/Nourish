@@ -143,6 +143,9 @@ final class FirestoreService: ObservableObject {
         }
 
         await reconcileProfile(uid: uid)
+        if let container = modelContainer {
+            SharedFeedSnapshot.refresh(modelContainer: container)
+        }
     }
 
     private func pullSessions(uid: String) async {
@@ -155,6 +158,7 @@ final class FirestoreService: ObservableObject {
             context.insert(cloud)
         }
         try? context.save()
+        SharedFeedSnapshot.refresh(modelContainer: container)
     }
 
     private func pullProfile(uid: String) async {
@@ -189,6 +193,7 @@ final class FirestoreService: ObservableObject {
             for session in sessions { context.delete(session) }
             try? context.save()
         }
+        SharedFeedSnapshot.clear()
     }
 
     // MARK: Firestore plumbing

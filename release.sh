@@ -9,10 +9,12 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCHEME="Nourish"
-BUNDLE_ID="com.yael.nourish"
+APP_BUNDLE_ID="com.yael.nourish"
+WIDGET_BUNDLE_ID="com.yael.nourish.NourishWidget"
 TEAM_ID="K623VDGZF8"
 SIGN_IDENTITY="Apple Distribution"
-PROFILE_NAME="Nourish App Store"
+APP_PROFILE="Nourish App Store"
+WIDGET_PROFILE="Nourish Widget App Store"
 PBX="Nourish.xcodeproj/project.pbxproj"
 ARCHIVE_PATH="/tmp/Nourish.xcarchive"
 EXPORT_DIR="/tmp/NourishExport"
@@ -51,33 +53,39 @@ if ! security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
   exit 1
 fi
 
-profile_found=false
-for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
-           "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
-  [[ -d "$dir" ]] || continue
-  for p in "$dir"/*.mobileprovision; do
-    [[ -e "$p" ]] || continue
-    if security cms -D -i "$p" 2>/dev/null | grep -q "<string>$PROFILE_NAME</string>"; then
-      profile_found=true
-      break 2
-    fi
+check_profile() {
+  local profile_name="$1"
+  for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+             "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+    [[ -d "$dir" ]] || continue
+    for p in "$dir"/*.mobileprovision; do
+      [[ -e "$p" ]] || continue
+      if security cms -D -i "$p" 2>/dev/null | grep -q "<string>$profile_name</string>"; then
+        return 0
+      fi
+    done
   done
+  return 1
+}
+
+for profile in "$APP_PROFILE" "$WIDGET_PROFILE"; do
+  if ! check_profile "$profile"; then
+    echo "ERROR: Provisioning profile '$profile' not installed." >&2
+    echo "Download from developer.apple.com -> Profiles, then double-click." >&2
+    exit 1
+  fi
 done
-if ! $profile_found; then
-  echo "ERROR: Provisioning profile '$PROFILE_NAME' not installed." >&2
-  echo "Download from developer.apple.com -> Profiles, then double-click." >&2
-  exit 1
-fi
 
 rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR"
 
+# Use automatic signing with -allowProvisioningUpdates so xcodebuild matches
+# each target (main app + widget) to the right pre-installed profile by
+# bundle ID. The export step pins explicit profile names per bundle ID.
 echo "Archiving..."
 xcodebuild -scheme "$SCHEME" -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE_PATH" \
-  CODE_SIGN_STYLE=Manual \
-  CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
-  PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+  -allowProvisioningUpdates \
   archive >/dev/null
 
 EXPORT_PLIST="$(mktemp -t ExportOptions).plist"
@@ -98,8 +106,10 @@ cat > "$EXPORT_PLIST" <<PLIST
     <string>$SIGN_IDENTITY</string>
     <key>provisioningProfiles</key>
     <dict>
-        <key>$BUNDLE_ID</key>
-        <string>$PROFILE_NAME</string>
+        <key>$APP_BUNDLE_ID</key>
+        <string>$APP_PROFILE</string>
+        <key>$WIDGET_BUNDLE_ID</key>
+        <string>$WIDGET_PROFILE</string>
     </dict>
     <key>stripSwiftSymbols</key>
     <true/>

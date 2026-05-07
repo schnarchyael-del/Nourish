@@ -80,9 +80,13 @@ struct SettingsView: View {
             }
             .onChange(of: reminderEnabled) { _, _ in
                 NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+            SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
+                SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
             }
             .onChange(of: reminderHours) { _, _ in
                 NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+            SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
+                SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
             }
     }
 
@@ -888,9 +892,11 @@ private struct ReminderSubView: View {
         .background(c.bg.ignoresSafeArea())
         .onChange(of: reminderEnabled) { _, _ in
             NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+            SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
         }
         .onChange(of: reminderHours) { _, _ in
             NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
+            SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
         }
     }
 }
