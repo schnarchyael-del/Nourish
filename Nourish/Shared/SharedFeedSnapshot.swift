@@ -59,21 +59,24 @@ enum SharedFeedSnapshot {
         }
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
 
-        // Last feed
+        // Last feed — use startTime so the widget's "X min ago" matches the
+        // app's HomeView timeAgoString (which is also computed from startTime).
+        // SwiftData only ever holds completed sessions, so `last` is never an
+        // in-progress / discarded session.
         if let last = sessions.first {
-            let endOrNow = last.endTime ?? last.startTime
             let lastSide = last.feedType.rawValue
             let durationSeconds = last.feedType == .bottle
                 ? 0
                 : (last.leftMinutesResolved + last.rightMinutesResolved) * 60
 
-            defaults.set(endOrNow.timeIntervalSince1970, forKey: Key.lastFeedTime)
+            defaults.set(last.startTime.timeIntervalSince1970, forKey: Key.lastFeedTime)
             defaults.set(durationSeconds, forKey: Key.lastFeedDuration)
             defaults.set(lastSide, forKey: Key.lastFeedSide)
             defaults.set(last.feedType == .bottle ? "bottle" : "breast", forKey: Key.lastFeedType)
             defaults.set(last.leftMinutesResolved,  forKey: Key.lastFeedLeftMinutes)
             defaults.set(last.rightMinutesResolved, forKey: Key.lastFeedRightMinutes)
             defaults.set(last.bottleAmountMl ?? 0,  forKey: Key.lastFeedBottleMl)
+            print("[SharedFeedSnapshot] lastFeedTime=\(last.startTime) (session id=\(last.id), side=\(lastSide))")
         } else {
             defaults.removeObject(forKey: Key.lastFeedTime)
             defaults.set(0, forKey: Key.lastFeedDuration)
@@ -82,6 +85,7 @@ enum SharedFeedSnapshot {
             defaults.set(0, forKey: Key.lastFeedLeftMinutes)
             defaults.set(0, forKey: Key.lastFeedRightMinutes)
             defaults.set(0, forKey: Key.lastFeedBottleMl)
+            print("[SharedFeedSnapshot] no completed sessions in store — cleared lastFeed*")
         }
 
         // Today's totals (since startOfDay)

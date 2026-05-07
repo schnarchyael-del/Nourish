@@ -85,7 +85,7 @@ struct NourishHomeWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NourishProvider()) { entry in
-            HomeWidgetView(snapshot: entry.snapshot)
+            HomeWidgetView(snapshot: entry.snapshot, now: entry.date)
                 .containerBackground(NourishWidgetColor.bg, for: .widget)
                 .widgetURL(URL(string: "nourish://home"))
         }
@@ -97,12 +97,13 @@ struct NourishHomeWidget: Widget {
 
 private struct HomeWidgetView: View {
     let snapshot: FeedSnapshot
+    let now: Date
 
     var body: some View {
         if snapshot.isActuallyActive {
             ActiveSmallHomeView(snapshot: snapshot)
         } else if snapshot.hasData {
-            SmallHomeView(snapshot: snapshot)
+            SmallHomeView(snapshot: snapshot, now: now)
         } else {
             EmptyHomeView()
         }
@@ -208,6 +209,7 @@ private struct SidesBreakdown: View {
 
 private struct SmallHomeView: View {
     let snapshot: FeedSnapshot
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -215,14 +217,11 @@ private struct SmallHomeView: View {
 
             HStack(spacing: 10) {
                 SideBadge(side: snapshot.lastFeedSide, size: 36)
-                if let date = snapshot.lastFeedTime {
-                    // .relative auto-updates without timeline refresh ("5 min ago")
-                    Text(date, style: .relative)
-                        .font(.system(size: 16, weight: .bold, design: .serif))
-                        .foregroundStyle(NourishWidgetColor.ink)
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                }
+                Text(FeedFormat.timeAgo(from: snapshot.lastFeedTime, reference: now))
+                    .font(.system(size: 16, weight: .bold, design: .serif))
+                    .foregroundStyle(NourishWidgetColor.ink)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
             }
 
             SidesBreakdown(snapshot: snapshot, compact: true)

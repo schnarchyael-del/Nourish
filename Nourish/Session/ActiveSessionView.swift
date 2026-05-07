@@ -184,6 +184,7 @@ struct ActiveSessionView: View {
                     },
                     onDiscard: {
                         store.cancel()
+                        SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
                         showAlarmModal = false
                     }
                 )
@@ -196,6 +197,7 @@ struct ActiveSessionView: View {
             Button("Cancel", role: .cancel) { }
             Button("Discard", role: .destructive) {
                 store.cancel()
+                SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
                 AnalyticsService.sessionDiscarded()
             }
         } message: {

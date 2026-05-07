@@ -138,31 +138,36 @@ extension FeedSnapshot {
 // MARK: - Display helpers (also used by the main-app side)
 
 enum FeedFormat {
-    /// "2h 15m ago" / "45m ago" / "Just now"
+    /// Static "X min ago" / "1h 15m ago" / "Yesterday" / "2 days ago" string.
+    /// Pass the timeline entry's `date` as `reference` so each prerendered
+    /// entry shows the correct value at the moment iOS displays it.
     static func timeAgo(from date: Date?, reference: Date = .now) -> String {
         guard let date else { return "—" }
         let secs = max(0, Int(reference.timeIntervalSince(date)))
         if secs < 60 { return "Just now" }
         let mins = secs / 60
-        if mins < 60 { return "\(mins)m ago" }
+        if mins < 60 { return "\(mins) min ago" }
         let hours = mins / 60
         let remMins = mins % 60
         if hours < 24 {
             return remMins > 0 ? "\(hours)h \(remMins)m ago" : "\(hours)h ago"
         }
         let days = hours / 24
-        return "\(days)d ago"
+        if days == 1 { return "Yesterday" }
+        return "\(days) days ago"
     }
 
-    /// "1h 45m" / "45m" / "0m"
-    static func countdown(to date: Date?, reference: Date = .now) -> String {
-        guard let date, date > reference else { return "0m" }
-        let secs = Int(date.timeIntervalSince(reference))
+    /// Compact form for tight spaces (e.g. circular lock-screen widget):
+    /// "now" / "23m" / "2h" / "1d".
+    static func timeAgoCompact(from date: Date?, reference: Date = .now) -> String {
+        guard let date else { return "—" }
+        let secs = max(0, Int(reference.timeIntervalSince(date)))
+        if secs < 60 { return "now" }
         let mins = secs / 60
         if mins < 60 { return "\(mins)m" }
         let hours = mins / 60
-        let remMins = mins % 60
-        return remMins > 0 ? "\(hours)h \(remMins)m" : "\(hours)h"
+        if hours < 24 { return "\(hours)h" }
+        return "\(hours / 24)d"
     }
 
     /// "12 min" / "1h 5m"

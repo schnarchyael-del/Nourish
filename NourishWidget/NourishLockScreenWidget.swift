@@ -6,7 +6,7 @@ struct NourishLockScreenWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NourishProvider()) { entry in
-            LockScreenView(snapshot: entry.snapshot)
+            LockScreenView(snapshot: entry.snapshot, now: entry.date)
                 .containerBackground(.clear, for: .widget)
                 .widgetURL(URL(string: "nourish://home"))
         }
@@ -19,13 +19,14 @@ struct NourishLockScreenWidget: Widget {
 private struct LockScreenView: View {
     @Environment(\.widgetFamily) private var family
     let snapshot: FeedSnapshot
+    let now: Date
 
     var body: some View {
         switch family {
-        case .accessoryCircular:    CircularLockView(snapshot: snapshot)
-        case .accessoryRectangular: RectangularLockView(snapshot: snapshot)
-        case .accessoryInline:      InlineLockView(snapshot: snapshot)
-        default:                    InlineLockView(snapshot: snapshot)
+        case .accessoryCircular:    CircularLockView(snapshot: snapshot, now: now)
+        case .accessoryRectangular: RectangularLockView(snapshot: snapshot, now: now)
+        case .accessoryInline:      InlineLockView(snapshot: snapshot, now: now)
+        default:                    InlineLockView(snapshot: snapshot, now: now)
         }
     }
 }
@@ -34,6 +35,7 @@ private struct LockScreenView: View {
 
 private struct CircularLockView: View {
     let snapshot: FeedSnapshot
+    let now: Date
 
     var body: some View {
         ZStack {
@@ -42,19 +44,20 @@ private struct CircularLockView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 2) {
                         Circle().frame(width: 5, height: 5)
-                        Text(activeLetter).font(.system(size: 18, weight: .bold, design: .rounded))
+                        Text(FeedFormat.sideLetter(from: snapshot.activeSessionSide))
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
                     }
                     Text(start, style: .timer)
                         .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                 }
-            } else if let date = snapshot.lastFeedTime {
+            } else if snapshot.lastFeedTime != nil {
                 VStack(spacing: 0) {
-                    Text(idleLetter)
+                    Text(FeedFormat.sideLetter(from: snapshot.lastFeedSide))
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.5)
-                    Text(date, style: .relative)
+                    Text(FeedFormat.timeAgoCompact(from: snapshot.lastFeedTime, reference: now))
                         .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
@@ -65,19 +68,13 @@ private struct CircularLockView: View {
             }
         }
     }
-
-    private var idleLetter: String {
-        FeedFormat.sideLetter(from: snapshot.lastFeedSide)
-    }
-    private var activeLetter: String {
-        FeedFormat.sideLetter(from: snapshot.activeSessionSide)
-    }
 }
 
 // MARK: - Rectangular
 
 private struct RectangularLockView: View {
     let snapshot: FeedSnapshot
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -94,12 +91,12 @@ private struct RectangularLockView: View {
             } else {
                 Text("Nourish · Last feed")
                     .font(.system(size: 11, weight: .bold))
-                if let date = snapshot.lastFeedTime {
+                if snapshot.lastFeedTime != nil {
                     let letter = FeedFormat.sideLetter(from: snapshot.lastFeedSide)
-                    Text("\(letter) · ")
+                    let ago = FeedFormat.timeAgo(from: snapshot.lastFeedTime, reference: now)
+                    Text("\(letter) · \(ago)")
                         .font(.system(size: 14, weight: .semibold))
-                    + Text(date, style: .relative)
-                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
                     if !breakdown.isEmpty {
                         Text(breakdown)
                             .font(.system(size: 12))
@@ -129,14 +126,14 @@ private struct RectangularLockView: View {
 
 private struct InlineLockView: View {
     let snapshot: FeedSnapshot
+    let now: Date
 
     var body: some View {
         if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
             Text("Nourish · Feeding \(FeedFormat.sideLetter(from: snapshot.activeSessionSide)) · ")
             + Text(start, style: .timer)
-        } else if let date = snapshot.lastFeedTime {
-            Text("Nourish · \(FeedFormat.sideLetter(from: snapshot.lastFeedSide)) · ")
-            + Text(date, style: .relative)
+        } else if snapshot.lastFeedTime != nil {
+            Text("Nourish · \(FeedFormat.sideLetter(from: snapshot.lastFeedSide)) · \(FeedFormat.timeAgo(from: snapshot.lastFeedTime, reference: now))")
         } else {
             Text("Nourish · tap to start")
         }
