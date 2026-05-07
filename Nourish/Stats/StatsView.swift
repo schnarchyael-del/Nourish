@@ -102,13 +102,15 @@ struct StatsView: View {
     private var avgLeftMins: Int {
         let mins = breastSessions.map(\.leftMinutesResolved).filter { $0 > 0 }
         guard !mins.isEmpty else { return 0 }
-        return mins.reduce(0, +) / mins.count
+        let avg = Double(mins.reduce(0, +)) / Double(mins.count)
+        return Int(avg.rounded())
     }
 
     private var avgRightMins: Int {
         let mins = breastSessions.map(\.rightMinutesResolved).filter { $0 > 0 }
         guard !mins.isEmpty else { return 0 }
-        return mins.reduce(0, +) / mins.count
+        let avg = Double(mins.reduce(0, +)) / Double(mins.count)
+        return Int(avg.rounded())
     }
 
     // MARK: Body
@@ -314,9 +316,30 @@ struct StatsView: View {
 
     private var hasBottleFeeds: Bool { !bottleSessions.isEmpty }
 
+    /// Approx feeding minutes per bottle session, used so bottle feeds carry
+    /// some weight in the Feed Breakdown bar even though we don't track an
+    /// actual bottle feeding duration. Tunable.
+    private static let bottleEquivalentMinutes = 10
+
+    private var leftMinutesTotal: Int {
+        breastSessions.reduce(0) { $0 + $1.leftMinutesResolved }
+    }
+
+    private var rightMinutesTotal: Int {
+        breastSessions.reduce(0) { $0 + $1.rightMinutesResolved }
+    }
+
+    private var bottleEquivalentMinutesTotal: Int {
+        bottleSessions.count * Self.bottleEquivalentMinutes
+    }
+
+    private var totalFeedMinutes: Int {
+        leftMinutesTotal + rightMinutesTotal + bottleEquivalentMinutesTotal
+    }
+
     private var bottleFractionOfTotal: Double {
-        guard !filteredSessions.isEmpty else { return 0 }
-        return Double(bottleSessions.count) / Double(filteredSessions.count)
+        guard totalFeedMinutes > 0 else { return 0 }
+        return Double(bottleEquivalentMinutesTotal) / Double(totalFeedMinutes)
     }
 
     private var breastVsBottleCard: some View {
@@ -347,13 +370,13 @@ struct StatsView: View {
     // MARK: Adaptive single-row bar
 
     private var leftFractionOfTotal: Double {
-        guard !filteredSessions.isEmpty else { return 0 }
-        return Double(leftSessions.count) / Double(filteredSessions.count)
+        guard totalFeedMinutes > 0 else { return 0 }
+        return Double(leftMinutesTotal) / Double(totalFeedMinutes)
     }
 
     private var rightFractionOfTotal: Double {
-        guard !filteredSessions.isEmpty else { return 0 }
-        return Double(rightSessions.count) / Double(filteredSessions.count)
+        guard totalFeedMinutes > 0 else { return 0 }
+        return Double(rightMinutesTotal) / Double(totalFeedMinutes)
     }
 
     private var feedBreakdownBar: some View {
