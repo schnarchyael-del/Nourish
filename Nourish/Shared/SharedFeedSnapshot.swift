@@ -23,6 +23,27 @@ enum SharedFeedSnapshot {
         static let todayTotalMinutes     = "widget.todayTotalMinutes"
         static let todayLeftMinutes      = "widget.todayLeftMinutes"
         static let todayRightMinutes     = "widget.todayRightMinutes"
+        static let isSessionActive       = "widget.isSessionActive"
+        static let activeSessionStart    = "widget.activeSessionStart"
+        static let activeSessionSide     = "widget.activeSessionSide"
+    }
+
+    /// Mark a session as active in the shared snapshot and reload widgets.
+    static func setActiveSession(side: String, start: Date) {
+        guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
+        defaults.set(true, forKey: Key.isSessionActive)
+        defaults.set(side, forKey: Key.activeSessionSide)
+        defaults.set(start.timeIntervalSince1970, forKey: Key.activeSessionStart)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Clear active-session flags (session ended or was discarded). Reload widgets.
+    static func clearActiveSession() {
+        guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
+        defaults.set(false, forKey: Key.isSessionActive)
+        defaults.removeObject(forKey: Key.activeSessionStart)
+        defaults.removeObject(forKey: Key.activeSessionSide)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// Read the latest sessions out of SwiftData, compute the snapshot
@@ -85,6 +106,7 @@ enum SharedFeedSnapshot {
             Key.lastFeedType, Key.lastFeedLeftMinutes, Key.lastFeedRightMinutes,
             Key.lastFeedBottleMl, Key.todaySessionCount, Key.todayTotalMinutes,
             Key.todayLeftMinutes, Key.todayRightMinutes,
+            Key.isSessionActive, Key.activeSessionStart, Key.activeSessionSide,
         ] {
             defaults.removeObject(forKey: key)
         }

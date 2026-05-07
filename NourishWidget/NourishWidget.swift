@@ -99,11 +99,57 @@ private struct HomeWidgetView: View {
     let snapshot: FeedSnapshot
 
     var body: some View {
-        if snapshot.hasData {
+        if snapshot.isSessionActive, snapshot.activeSessionStart != nil {
+            ActiveSmallHomeView(snapshot: snapshot)
+        } else if snapshot.hasData {
             SmallHomeView(snapshot: snapshot)
         } else {
             EmptyHomeView()
         }
+    }
+}
+
+// MARK: - Active session
+
+private struct ActiveSmallHomeView: View {
+    let snapshot: FeedSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NourishBrand(iconSize: 14)
+
+            HStack(spacing: 10) {
+                SideBadge(side: snapshot.activeSessionSide, size: 36)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Feeding")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(NourishWidgetColor.muted)
+                    if let start = snapshot.activeSessionStart {
+                        Text(start, style: .timer)
+                            .font(.system(size: 18, weight: .bold, design: .serif))
+                            .foregroundStyle(NourishWidgetColor.ink)
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Text("\(snapshot.activeSessionSide.capitalized) breast")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(snapshot.activeSessionSide.sideForegroundColor)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(NourishWidgetColor.leftFg)
+                    .frame(width: 6, height: 6)
+                Text("Live")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(NourishWidgetColor.leftFg)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -169,11 +215,14 @@ private struct SmallHomeView: View {
 
             HStack(spacing: 10) {
                 SideBadge(side: snapshot.lastFeedSide, size: 36)
-                Text(FeedFormat.timeAgo(from: snapshot.lastFeedTime))
-                    .font(.system(size: 18, weight: .bold, design: .serif))
-                    .foregroundStyle(NourishWidgetColor.ink)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
+                if let date = snapshot.lastFeedTime {
+                    // .relative auto-updates without timeline refresh ("5 min ago")
+                    Text(date, style: .relative)
+                        .font(.system(size: 16, weight: .bold, design: .serif))
+                        .foregroundStyle(NourishWidgetColor.ink)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                }
             }
 
             SidesBreakdown(snapshot: snapshot, compact: true)

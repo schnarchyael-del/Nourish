@@ -32,74 +32,89 @@ private struct LockScreenView: View {
 
 // MARK: - Circular
 
-/// Side letter big in the middle, time-ago below.
 private struct CircularLockView: View {
     let snapshot: FeedSnapshot
 
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
-            VStack(spacing: 0) {
-                Text(letter)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .minimumScaleFactor(0.5)
-                Text(timeAgoCompact)
-                    .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+            if snapshot.isSessionActive, let start = snapshot.activeSessionStart {
+                VStack(spacing: 0) {
+                    HStack(spacing: 2) {
+                        Circle().frame(width: 5, height: 5)
+                        Text(activeLetter).font(.system(size: 18, weight: .bold, design: .rounded))
+                    }
+                    Text(start, style: .timer)
+                        .font(.system(size: 9, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+            } else if let date = snapshot.lastFeedTime {
+                VStack(spacing: 0) {
+                    Text(idleLetter)
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                    Text(date, style: .relative)
+                        .font(.system(size: 9, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                }
+            } else {
+                Text("—")
+                    .font(.system(size: 22, weight: .bold))
             }
         }
     }
 
-    private var letter: String {
-        snapshot.hasData ? FeedFormat.sideLetter(from: snapshot.lastFeedSide) : "—"
+    private var idleLetter: String {
+        FeedFormat.sideLetter(from: snapshot.lastFeedSide)
     }
-
-    /// Compact form fits the circular gauge: "2h", "45m", "now", "—"
-    private var timeAgoCompact: String {
-        guard let date = snapshot.lastFeedTime else { return "—" }
-        let secs = max(0, Int(Date.now.timeIntervalSince(date)))
-        if secs < 60 { return "now" }
-        let mins = secs / 60
-        if mins < 60 { return "\(mins)m" }
-        return "\(mins / 60)h"
+    private var activeLetter: String {
+        FeedFormat.sideLetter(from: snapshot.activeSessionSide)
     }
 }
 
 // MARK: - Rectangular
 
-/// Three lines: "Nourish · Last feed" header, side + time, per-side breakdown.
 private struct RectangularLockView: View {
     let snapshot: FeedSnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text("Nourish · Last feed")
-                .font(.system(size: 11, weight: .bold))
-            if snapshot.hasData {
-                Text(line1)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                if !line2.isEmpty {
-                    Text(line2)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
+            if snapshot.isSessionActive, let start = snapshot.activeSessionStart {
+                HStack(spacing: 4) {
+                    Circle().frame(width: 6, height: 6)
+                    Text("Nourish · Feeding now")
+                        .font(.system(size: 11, weight: .bold))
                 }
+                Text("\(FeedFormat.sideLetter(from: snapshot.activeSessionSide))  ")
+                    .font(.system(size: 14, weight: .semibold))
+                + Text(start, style: .timer)
+                    .font(.system(size: 14, weight: .semibold))
             } else {
-                Text("Tap to start your first feed")
-                    .font(.system(size: 12))
+                Text("Nourish · Last feed")
+                    .font(.system(size: 11, weight: .bold))
+                if let date = snapshot.lastFeedTime {
+                    let letter = FeedFormat.sideLetter(from: snapshot.lastFeedSide)
+                    Text("\(letter) · ")
+                        .font(.system(size: 14, weight: .semibold))
+                    + Text(date, style: .relative)
+                        .font(.system(size: 14, weight: .semibold))
+                    if !breakdown.isEmpty {
+                        Text(breakdown)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                    }
+                } else {
+                    Text("Tap to start your first feed")
+                        .font(.system(size: 12))
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var line1: String {
-        let letter = FeedFormat.sideLetter(from: snapshot.lastFeedSide)
-        let ago = FeedFormat.timeAgo(from: snapshot.lastFeedTime)
-        return "\(letter) · \(ago)"
-    }
-
-    private var line2: String {
+    private var breakdown: String {
         if snapshot.isBottle {
             return snapshot.lastFeedBottleMl > 0 ? "\(snapshot.lastFeedBottleMl) ml" : ""
         }
@@ -116,19 +131,14 @@ private struct InlineLockView: View {
     let snapshot: FeedSnapshot
 
     var body: some View {
-        Text(text)
-    }
-
-    private var text: String {
-        guard snapshot.hasData else { return "Nourish · tap to start" }
-        let letter = FeedFormat.sideLetter(from: snapshot.lastFeedSide)
-        let ago = FeedFormat.timeAgo(from: snapshot.lastFeedTime)
-        let dur = snapshot.isBottle
-            ? (snapshot.lastFeedBottleMl > 0 ? "\(snapshot.lastFeedBottleMl) ml" : "")
-            : "\(snapshot.lastFeedLeftMinutes + snapshot.lastFeedRightMinutes)m"
-        if dur.isEmpty {
-            return "Nourish · \(letter) · \(ago)"
+        if snapshot.isSessionActive, let start = snapshot.activeSessionStart {
+            Text("Nourish · Feeding \(FeedFormat.sideLetter(from: snapshot.activeSessionSide)) · ")
+            + Text(start, style: .timer)
+        } else if let date = snapshot.lastFeedTime {
+            Text("Nourish · \(FeedFormat.sideLetter(from: snapshot.lastFeedSide)) · ")
+            + Text(date, style: .relative)
+        } else {
+            Text("Nourish · tap to start")
         }
-        return "Nourish · \(letter) · \(ago) · \(dur)"
     }
 }

@@ -19,8 +19,18 @@ struct NourishProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NourishEntry>) -> Void) {
         let snap = FeedSnapshot.load()
-        let entry = NourishEntry(date: .now, snapshot: snap)
-        let refreshAt = Date.now.addingTimeInterval(15 * 60)
-        completion(Timeline(entries: [entry], policy: .after(refreshAt)))
+        // Generate entries every 30 min over the next 2 hours so the widget
+        // has prerendered states even if WidgetCenter.reloadAllTimelines() is
+        // missed. Text(date, style: .relative / .timer) auto-updates between
+        // entries so the displayed time stays fresh per minute regardless.
+        let now = Date.now
+        let entries: [NourishEntry] = (0..<5).map { step in
+            NourishEntry(
+                date: now.addingTimeInterval(TimeInterval(step) * 30 * 60),
+                snapshot: snap
+            )
+        }
+        let refreshAt = now.addingTimeInterval(2 * 3600)
+        completion(Timeline(entries: entries, policy: .after(refreshAt)))
     }
 }

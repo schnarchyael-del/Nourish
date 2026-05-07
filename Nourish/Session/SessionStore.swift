@@ -63,6 +63,10 @@ final class SessionStore {
         if alarmEnabled, alarmMinutes > 0 {
             NotificationManager.shared.scheduleSessionAlarm(seconds: TimeInterval(alarmMinutes * 60))
         }
+
+        // Push live state to widgets and keep the screen awake.
+        SharedFeedSnapshot.setActiveSession(side: side.rawValue, start: sessionStartDate ?? .now)
+        UIApplication.shared.isIdleTimerDisabled = true
     }
 
     func pause() {
@@ -111,6 +115,8 @@ final class SessionStore {
         clearPersisted()
         reset()
         NotificationManager.shared.cancelSessionAlarm()
+        SharedFeedSnapshot.clearActiveSession()
+        UIApplication.shared.isIdleTimerDisabled = false
         return (startTime, start.feedType, endTime, split.left, split.right)
     }
 
@@ -142,6 +148,8 @@ final class SessionStore {
         clearPersisted()
         reset()
         NotificationManager.shared.cancelSessionAlarm()
+        SharedFeedSnapshot.clearActiveSession()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     var formattedTime: String {
@@ -255,5 +263,12 @@ final class SessionStore {
 
         syncToWallClock()
         if !isPaused { startTimer() }
+
+        // Recovered an in-progress session — re-enable the keep-awake flag and
+        // republish the active state so widgets reflect it.
+        if let start = sessionStartDate {
+            SharedFeedSnapshot.setActiveSession(side: stSide.rawValue, start: start)
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
     }
 }

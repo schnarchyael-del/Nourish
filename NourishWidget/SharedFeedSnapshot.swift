@@ -15,6 +15,10 @@ struct FeedSnapshot {
     let todayLeftMinutes: Int
     let todayRightMinutes: Int
 
+    let isSessionActive: Bool
+    let activeSessionStart: Date?
+    let activeSessionSide: String   // "left" / "right" / ""
+
     static let empty = FeedSnapshot(
         lastFeedTime: nil,
         lastFeedDurationSeconds: 0,
@@ -26,7 +30,10 @@ struct FeedSnapshot {
         todaySessionCount: 0,
         todayTotalMinutes: 0,
         todayLeftMinutes: 0,
-        todayRightMinutes: 0
+        todayRightMinutes: 0,
+        isSessionActive: false,
+        activeSessionStart: nil,
+        activeSessionSide: ""
     )
 
     static let placeholder = FeedSnapshot(
@@ -40,7 +47,27 @@ struct FeedSnapshot {
         todaySessionCount: 6,
         todayTotalMinutes: 92,
         todayLeftMinutes: 52,
-        todayRightMinutes: 40
+        todayRightMinutes: 40,
+        isSessionActive: false,
+        activeSessionStart: nil,
+        activeSessionSide: ""
+    )
+
+    static let placeholderActive = FeedSnapshot(
+        lastFeedTime: Date.now.addingTimeInterval(-2 * 3600),
+        lastFeedDurationSeconds: 12 * 60,
+        lastFeedSide: "right",
+        lastFeedType: "breast",
+        lastFeedLeftMinutes: 8,
+        lastFeedRightMinutes: 4,
+        lastFeedBottleMl: 0,
+        todaySessionCount: 6,
+        todayTotalMinutes: 92,
+        todayLeftMinutes: 52,
+        todayRightMinutes: 40,
+        isSessionActive: true,
+        activeSessionStart: Date.now.addingTimeInterval(-3 * 60 - 42),
+        activeSessionSide: "left"
     )
 
     var hasData: Bool { lastFeedTime != nil }
@@ -62,6 +89,9 @@ enum SharedKey {
     static let todayTotalMinutes     = "widget.todayTotalMinutes"
     static let todayLeftMinutes      = "widget.todayLeftMinutes"
     static let todayRightMinutes     = "widget.todayRightMinutes"
+    static let isSessionActive       = "widget.isSessionActive"
+    static let activeSessionStart    = "widget.activeSessionStart"
+    static let activeSessionSide     = "widget.activeSessionSide"
 }
 
 extension FeedSnapshot {
@@ -71,6 +101,9 @@ extension FeedSnapshot {
             return .empty
         }
         let lastFeedTime = (d.object(forKey: SharedKey.lastFeedTime) as? Double)
+            .map { Date(timeIntervalSince1970: $0) }
+
+        let activeStart = (d.object(forKey: SharedKey.activeSessionStart) as? Double)
             .map { Date(timeIntervalSince1970: $0) }
 
         return FeedSnapshot(
@@ -84,7 +117,10 @@ extension FeedSnapshot {
             todaySessionCount: d.integer(forKey: SharedKey.todaySessionCount),
             todayTotalMinutes: d.integer(forKey: SharedKey.todayTotalMinutes),
             todayLeftMinutes: d.integer(forKey: SharedKey.todayLeftMinutes),
-            todayRightMinutes: d.integer(forKey: SharedKey.todayRightMinutes)
+            todayRightMinutes: d.integer(forKey: SharedKey.todayRightMinutes),
+            isSessionActive: d.bool(forKey: SharedKey.isSessionActive),
+            activeSessionStart: activeStart,
+            activeSessionSide: d.string(forKey: SharedKey.activeSessionSide) ?? ""
         )
     }
 }
