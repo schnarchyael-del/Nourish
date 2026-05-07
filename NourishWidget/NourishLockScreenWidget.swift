@@ -51,17 +51,24 @@ private struct CircularLockView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if snapshot.lastFeedTime != nil {
                 VStack(spacing: 0) {
                     Text(FeedFormat.sideLetter(from: snapshot.lastFeedSide))
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.5)
+                        .frame(maxWidth: .infinity)
                     Text(FeedFormat.timeAgoCompact(from: snapshot.lastFeedTime, reference: now))
                         .font(.system(size: 9, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text("—")
                     .font(.system(size: 22, weight: .bold))
