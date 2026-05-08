@@ -229,10 +229,7 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 LinearGradient(
-                    colors: [
-                        side == .left ? Color(hex: "FFFAF8") : Color(hex: "F8FAFE"),
-                        c.bgColor(for: side)
-                    ],
+                    colors: gradientColors(for: side),
                     startPoint: .top, endPoint: .bottom
                 )
             )
@@ -240,15 +237,30 @@ struct HomeView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 28)
                     .stroke(
-                        side == .left
-                            ? Color(hex: "C05840").opacity(0.15)
-                            : Color(hex: "5A87A4").opacity(0.15),
+                        c.accentColor(for: side).opacity(c.darkMode ? 0.35 : 0.15),
                         lineWidth: 1.5
                     )
             )
             .shadow(color: c.shadowColor(for: side), radius: 15, y: 6)
         }
         .buttonStyle(ScaleButtonStyle(scale: 0.963))
+    }
+
+    private func gradientColors(for side: FeedSide) -> [Color] {
+        if c.darkMode {
+            // Subtle warm-tint gradient from a brighter accent wash to the
+            // dimmer side bg. No hardcoded near-white that would harshly fade
+            // against the dark background.
+            return [
+                c.accentColor(for: side).opacity(0.32),
+                c.bgColor(for: side)
+            ]
+        } else {
+            return [
+                side == .left ? Color(hex: "FFFAF8") : Color(hex: "F8FAFE"),
+                c.bgColor(for: side)
+            ]
+        }
     }
 
     // MARK: Bottle & Log buttons

@@ -175,7 +175,7 @@ struct EmailSignInView: View {
         .foregroundStyle(c.ink)
         .padding(.horizontal, 16)
         .frame(height: 52)
-        .background(Color.white)
+        .background(c.input)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.border, lineWidth: 1))
     }

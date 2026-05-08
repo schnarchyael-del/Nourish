@@ -216,7 +216,7 @@ struct OnboardingView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(selected ? c.leftBg : Color.white)
+                    .background(selected ? c.leftBg : c.input)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
@@ -247,7 +247,7 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, 18)
                 .frame(height: 56)
-                .background(Color.white)
+                .background(c.input)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
@@ -263,7 +263,7 @@ struct OnboardingView: View {
                     .tint(c.leftAccent)
                     .colorScheme(.light)
                     .padding(8)
-                    .background(Color.white)
+                    .background(c.input)
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1))
                     .padding(.top, 4)
@@ -330,7 +330,7 @@ struct OnboardingView: View {
                         .foregroundStyle(c.muted)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(Color.white.opacity(0.5))
+                        .background(c.input.opacity(0.5))
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(c.border, lineWidth: 1.5))
                     }
@@ -397,7 +397,7 @@ struct OnboardingView: View {
                 .font(.nSans(14, weight: .semibold))
                 .foregroundStyle(c.ink)
                 .frame(width: 38, height: 38)
-                .background(Color.white)
+                .background(c.input)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(c.border, lineWidth: 1))
         }
@@ -450,7 +450,7 @@ private struct OnboardingTextField: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 56)
-        .background(Color.white)
+        .background(colors.input)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(
             RoundedRectangle(cornerRadius: 18)

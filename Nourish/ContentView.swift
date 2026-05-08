@@ -7,15 +7,31 @@ struct ContentView: View {
     @AppStorage("rightAccentVariant")     private var rightAccentVariant     = "blue"
     @AppStorage("darkActiveScreen")       private var darkActiveScreen       = true
     @AppStorage("showEncouragements")     private var showEncouragements     = true
+    @AppStorage("appTheme")               private var appThemeRaw            = AppTheme.system.rawValue
+
+    @Environment(\.colorScheme) private var systemColorScheme
 
     @State private var sessionStore  = SessionStore()
     @State private var selectedTab   = 0
     @State private var showLogScreen = false
 
+    private var appTheme: AppTheme {
+        AppTheme(rawValue: appThemeRaw) ?? .system
+    }
+
+    private var darkMode: Bool {
+        switch appTheme {
+        case .light:  return false
+        case .dark:   return true
+        case .system: return systemColorScheme == .dark
+        }
+    }
+
     private var colors: NourishColors {
         NourishColors(
             accent: AccentVariant(rawValue: accentVariant) ?? .terra,
-            rightAccent: RightAccentVariant(rawValue: rightAccentVariant) ?? .blue
+            rightAccent: RightAccentVariant(rawValue: rightAccentVariant) ?? .blue,
+            darkMode: darkMode
         )
     }
 
@@ -33,6 +49,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: hasCompletedOnboarding)
+        .preferredColorScheme(appTheme.preferredScheme)
     }
 
     // MARK: Main app shell

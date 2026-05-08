@@ -460,12 +460,22 @@ private struct AppearanceSubView: View {
     @AppStorage("rightAccentVariant") private var rightAccentVariant = "blue"
     @AppStorage("darkActiveScreen")   private var darkActiveScreen   = true
     @AppStorage("showEncouragements") private var showEncouragements = true
+    @AppStorage("appTheme")           private var appThemeRaw        = AppTheme.system.rawValue
+
+    private var appTheme: Binding<AppTheme> {
+        Binding(
+            get: { AppTheme(rawValue: appThemeRaw) ?? .system },
+            set: { appThemeRaw = $0.rawValue }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             NourishSheetHeader(title: "Appearance", onDismiss: { dismiss() })
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    themePickerRow
+
                     VStack(spacing: 0) {
                         HStack {
                             Text("🎨").font(.nSans(19))
@@ -541,6 +551,40 @@ private struct AppearanceSubView: View {
             }
         }
         .background(c.bg.ignoresSafeArea())
+    }
+
+    // MARK: Theme picker
+
+    private var themePickerRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Text("☀️").font(.nSans(19))
+                Text("Theme")
+                    .font(.nSans(15, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                ForEach(AppTheme.allCases, id: \.rawValue) { option in
+                    let selected = appTheme.wrappedValue == option
+                    Button { appTheme.wrappedValue = option } label: {
+                        Text(option.displayName)
+                            .font(.nSans(13, weight: .semibold))
+                            .foregroundStyle(selected ? c.bg : c.ink)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 36)
+                            .background(selected ? c.ink : Color.clear)
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(selected ? c.ink : c.border, lineWidth: 1.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.border, lineWidth: 1))
     }
 }
 
@@ -1051,7 +1095,7 @@ private struct ProfileEditView: View {
             TextField(label, text: text).textFieldStyle(.plain)
                 .font(.nSans(17, weight: .semibold)).foregroundStyle(c.ink)
                 .padding(.horizontal, 18).frame(height: 54)
-                .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 16))
+                .background(c.input).clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.border, lineWidth: 1))
         }.padding(.bottom, 16)
     }
@@ -1108,7 +1152,7 @@ private struct BabyEditView: View {
                                 Image(systemName: showDOBPicker ? "chevron.up" : "calendar")
                                     .font(.nSans(15)).foregroundStyle(c.muted)
                             }
-                            .padding(.horizontal, 18).frame(height: 54).background(Color.white)
+                            .padding(.horizontal, 18).frame(height: 54).background(c.input)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                             .overlay(RoundedRectangle(cornerRadius: 16).stroke(
                                 showDOBPicker ? c.leftAccent : c.border,
@@ -1120,7 +1164,7 @@ private struct BabyEditView: View {
                                 set: { babyDOBTimestamp = $0.timeIntervalSince1970 }
                             ), in: ...Date.now, displayedComponents: .date)
                                 .datePickerStyle(.graphical).tint(c.leftAccent).colorScheme(.light)
-                                .padding(8).background(Color.white)
+                                .padding(8).background(c.input)
                                 .clipShape(RoundedRectangle(cornerRadius: 18))
                                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1))
                                 .padding(.top, 4)
@@ -1155,7 +1199,7 @@ private struct BabyEditView: View {
             TextField(label, text: text).textFieldStyle(.plain)
                 .font(.nSans(17, weight: .semibold)).foregroundStyle(c.ink)
                 .padding(.horizontal, 18).frame(height: 54)
-                .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 16))
+                .background(c.input).clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.border, lineWidth: 1))
         }.padding(.bottom, 16)
     }

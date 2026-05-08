@@ -1,19 +1,42 @@
 import WidgetKit
 import SwiftUI
+import UIKit
 
-// MARK: - Nourish palette (mirrors main app)
+// MARK: - Nourish palette (mirrors main app — adapts to system dark mode)
+
+private func dynamic(_ light: UIColor, _ dark: UIColor) -> Color {
+    Color(UIColor { trait in
+        trait.userInterfaceStyle == .dark ? dark : light
+    })
+}
+
+private func uiColor(_ r: Int, _ g: Int, _ b: Int, _ a: CGFloat = 1) -> UIColor {
+    UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: a)
+}
 
 enum NourishWidgetColor {
-    static let bg       = Color(red: 250/255, green: 247/255, blue: 242/255)
-    static let ink      = Color(red:  44/255, green:  24/255, blue:  16/255)
-    static let muted    = Color(red: 158/255, green: 142/255, blue: 134/255)
-    static let leftBg   = Color(red: 247/255, green: 232/255, blue: 224/255)
+    static let bg = dynamic(uiColor(250, 247, 242), uiColor(28, 25, 23))
+    static let ink = dynamic(uiColor(44, 24, 16), uiColor(250, 247, 242))
+    static let muted = dynamic(uiColor(158, 142, 134), uiColor(168, 162, 158))
+    static let border = dynamic(uiColor(44, 24, 16, 0.10), UIColor.white.withAlphaComponent(0.10))
+
+    // Accents stay the same in both modes; only the tinted backgrounds shift.
     static let leftFg   = Color(red: 192/255, green:  88/255, blue:  64/255)  // terra
-    static let rightBg  = Color(red: 226/255, green: 235/255, blue: 240/255)
     static let rightFg  = Color(red:  72/255, green: 116/255, blue: 154/255)  // blue
-    static let bottleBg = Color(red: 245/255, green: 235/255, blue: 215/255)
     static let bottleFg = Color(red: 196/255, green: 162/255, blue: 101/255)
-    static let border   = Color(red:  44/255, green:  24/255, blue:  16/255).opacity(0.10)
+
+    static let leftBg = dynamic(
+        uiColor(247, 232, 224),
+        uiColor(192, 88, 64, 0.20)
+    )
+    static let rightBg = dynamic(
+        uiColor(226, 235, 240),
+        uiColor(72, 116, 154, 0.20)
+    )
+    static let bottleBg = dynamic(
+        uiColor(245, 235, 215),
+        uiColor(196, 162, 101, 0.20)
+    )
 }
 
 private extension String {

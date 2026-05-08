@@ -97,7 +97,7 @@ struct LogSessionView: View {
                     .font(.nSans(16, weight: .semibold))
                     .foregroundStyle(c.ink)
                     .frame(width: 38, height: 38)
-                    .background(Color.white)
+                    .background(c.input)
                     .clipShape(Circle())
                     .overlay(Circle().stroke(c.ink.opacity(0.09), lineWidth: 1))
             }
@@ -208,7 +208,7 @@ struct LogSessionView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .frame(height: 52)
-                .background(Color.white)
+                .background(c.input)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.border, lineWidth: 1))
         }

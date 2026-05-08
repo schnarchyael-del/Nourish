@@ -96,38 +96,107 @@ enum RightAccentVariant: String, CaseIterable {
     var rightShadow: Color { rightAccent.opacity(0.12) }
 }
 
+// MARK: - App theme
+
+enum AppTheme: String, CaseIterable {
+    case system, light, dark
+
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light:  return "Light"
+        case .dark:   return "Dark"
+        }
+    }
+
+    /// Value to pass to `.preferredColorScheme(_:)`. nil = follow system.
+    var preferredScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+}
+
 // MARK: - Color palette
 
 struct NourishColors {
     let accent: AccentVariant
     let rightVariant: RightAccentVariant
+    let darkMode: Bool
 
-    init(accent: AccentVariant, rightAccent: RightAccentVariant = .blue) {
+    init(accent: AccentVariant,
+         rightAccent: RightAccentVariant = .blue,
+         darkMode: Bool = false) {
         self.accent = accent
         self.rightVariant = rightAccent
+        self.darkMode = darkMode
     }
 
-    var bg: Color      { Color(hex: "FAF7F2") }
-    var surface: Color { .white }
-    var ink: Color     { Color(hex: "1A130E") }
-    var muted: Color   { Color(hex: "7A6E67") }
-    var border: Color  { Color(hex: "1A130E").opacity(0.09) }
-    var green: Color   { Color(hex: "5A9470") }
-    var greenBg: Color { Color(hex: "E8F4EC") }
+    // MARK: Neutrals
 
-    var leftAccent: Color  { accent.leftAccent }
-    var leftBg: Color      { accent.leftBg }
-    var leftText: Color    { accent.leftText }
-    var leftShadow: Color  { accent.leftShadow }
+    var bg: Color {
+        darkMode ? Color(hex: "1C1917") : Color(hex: "FAF7F2")
+    }
+    var surface: Color {
+        darkMode ? Color(hex: "292524") : .white
+    }
+    var ink: Color {
+        darkMode ? Color(hex: "FAF7F2") : Color(hex: "1A130E")
+    }
+    var muted: Color {
+        darkMode ? Color(hex: "A8A29E") : Color(hex: "7A6E67")
+    }
+    var border: Color {
+        darkMode ? Color.white.opacity(0.10) : Color(hex: "1A130E").opacity(0.09)
+    }
+    var green: Color {
+        darkMode ? Color(hex: "7BB68C") : Color(hex: "5A9470")
+    }
+    var greenBg: Color {
+        darkMode ? Color(hex: "5A9470").opacity(0.20) : Color(hex: "E8F4EC")
+    }
+
+    // MARK: Sides
+
+    var leftAccent: Color { accent.leftAccent }
+    var leftBg: Color {
+        darkMode ? leftAccent.opacity(0.20) : accent.leftBg
+    }
+    var leftText: Color {
+        darkMode ? leftAccent : accent.leftText
+    }
+    var leftShadow: Color { accent.leftShadow }
 
     var rightAccent: Color { rightVariant.rightAccent }
-    var rightBg: Color     { rightVariant.rightBg }
-    var rightText: Color   { rightVariant.rightText }
+    var rightBg: Color {
+        darkMode ? rightAccent.opacity(0.20) : rightVariant.rightBg
+    }
+    var rightText: Color {
+        darkMode ? rightAccent : rightVariant.rightText
+    }
     var rightShadow: Color { rightVariant.rightShadow }
 
-    var bottleAccent: Color  { Color(hex: "9C7A3C") }
-    var bottleBg: Color      { Color(hex: "F7F3EC") }
-    var bottleBorder: Color  { Color(hex: "9C7A3C").opacity(0.28) }
+    // MARK: Bottle
+
+    var bottleAccent: Color {
+        darkMode ? Color(hex: "D4A75E") : Color(hex: "9C7A3C")
+    }
+    var bottleBg: Color {
+        darkMode ? bottleAccent.opacity(0.18) : Color(hex: "F7F3EC")
+    }
+    var bottleBorder: Color {
+        bottleAccent.opacity(0.28)
+    }
+
+    // MARK: Helpers
+
+    /// Backing color for fields/inputs that previously hard-coded `.white` —
+    /// stays white in light mode, swaps to a slightly lighter card color in dark.
+    var input: Color {
+        darkMode ? Color(hex: "33302E") : .white
+    }
 
     func accentColor(for side: FeedSide) -> Color { side == .left ? leftAccent : rightAccent }
     func bgColor(for side: FeedSide) -> Color     { side == .left ? leftBg : rightBg }
@@ -138,7 +207,7 @@ struct NourishColors {
 // MARK: - Environment
 
 private struct NourishColorsKey: EnvironmentKey {
-    static let defaultValue = NourishColors(accent: .terra, rightAccent: .blue)
+    static let defaultValue = NourishColors(accent: .terra, rightAccent: .blue, darkMode: false)
 }
 
 extension EnvironmentValues {
