@@ -100,24 +100,29 @@ struct HomeView: View {
     // MARK: Last session card
 
     private var lastSessionCard: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if let s = lastSession {
-                filledSessionCard(s)
-            } else {
-                emptySessionCard
+        // TimelineView re-evaluates the body every minute AND when the app
+        // returns to the foreground, so the "X min ago" line stays in sync
+        // with reality without us managing scene-phase state by hand.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            VStack(alignment: .leading, spacing: 7) {
+                if let s = lastSession {
+                    filledSessionCard(s, now: context.date)
+                } else {
+                    emptySessionCard
+                }
             }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(c.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(c.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.04), radius: 7, y: 2)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .background(c.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(c.border, lineWidth: 1))
-        .shadow(color: .black.opacity(0.04), radius: 7, y: 2)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
     }
 
-    private func filledSessionCard(_ s: FeedingSession) -> some View {
+    private func filledSessionCard(_ s: FeedingSession, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text("Last session · \(s.formattedTime)")
                 .font(.nSans(11, weight: .semibold))
@@ -128,17 +133,17 @@ struct HomeView: View {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 3) {
                     if s.feedType == .bottle {
-                        Text("Bottle · \(s.timeAgoString)")
+                        Text("Bottle · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
                     } else {
-                        Text("Started \(s.feedType.displayName) · \(s.timeAgoString)")
+                        Text("Started \(s.feedType.displayName) · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
                     }
 
                     if s.feedType != .bottle {
-                        Text("\(s.durationMinutes) min total")
+                        Text("\(s.totalActiveMinutes) min total")
                             .font(.nSans(13))
                             .foregroundStyle(c.muted)
                     } else if let ml = s.bottleAmountMl {
@@ -163,6 +168,15 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private func timeAgo(from date: Date, now: Date) -> String {
+        let interval = max(0, now.timeIntervalSince(date))
+        let hours = Int(interval) / 3600
+        let mins  = (Int(interval) % 3600) / 60
+        if hours > 0 && mins > 0 { return "\(hours)h \(mins)m ago" }
+        if hours > 0              { return "\(hours)h ago" }
+        return "\(mins)m ago"
     }
 
     private var emptySessionCard: some View {
