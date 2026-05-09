@@ -128,12 +128,24 @@ struct InsightsEngine {
     private func patterns() -> [Insight] {
         var out: [Insight] = []
         let pool = sessionsInPatternWindow.filter { $0.feedType != .bottle }
-        guard pool.count >= 5 else { return [] }
+        guard pool.count >= 8 else { return [] }
 
         if let i = morningVsEveningInsight(pool) { out.append(i) }
         if let i = sidePreferenceInsight(pool)   { out.append(i) }
-        if let i = longestGapWindowInsight(pool) { out.append(i) }
-        if let i = busiestWindowInsight(pool)    { out.append(i) }
+
+        let gap = longestGapWindowInsight(pool)
+        let busy = busiestWindowInsight(pool)
+
+        // If the "longest stretch" and "busiest window" point at the same
+        // 4-hour bucket the two cards literally contradict each other.
+        // Suppress the longest-stretch one in that case; busiest is the more
+        // reliable signal (just counts sessions, no gap-midpoint heuristics).
+        if let g = gap, let b = busy, g.bucket == b.bucket {
+            out.append(b.insight)
+        } else {
+            if let g = gap  { out.append(g.insight) }
+            if let b = busy { out.append(b.insight) }
+        }
         return out
     }
 
@@ -175,51 +187,65 @@ struct InsightsEngine {
         )
     }
 
-    private func longestGapWindowInsight(_ pool: [FeedingSession]) -> Insight? {
+    private func longestGapWindowInsight(_ pool: [FeedingSession]) -> (insight: Insight, bucket: Int)? {
         let sorted = pool.sorted { $0.startTime < $1.startTime }
-        guard sorted.count >= 4 else { return nil }
+        guard sorted.count >= 6 else { return nil }
+        var allGaps: [TimeInterval] = []
         var bucketGaps: [Int: [TimeInterval]] = [:]
         for i in 1..<sorted.count {
             let gap = sorted[i].startTime.timeIntervalSince(sorted[i - 1].endTime ?? sorted[i - 1].startTime)
             guard gap > 0 else { continue }
+            allGaps.append(gap)
             let mid = sorted[i - 1].startTime.addingTimeInterval(gap / 2)
             let bucket = Calendar.current.component(.hour, from: mid) / 4   // 0...5
             bucketGaps[bucket, default: []].append(gap)
         }
+        let overallAvg = avg(allGaps)
+        guard overallAvg > 0 else { return nil }
+
+        // Need at least 3 gap samples in a bucket to call it a "stretch".
         guard let best = bucketGaps
-            .filter({ $0.value.count >= 2 })
+            .filter({ $0.value.count >= 3 })
             .max(by: { avg($0.value) < avg($1.value) })
         else { return nil }
-        let bestAvgHours = avg(best.value) / 3600
-        guard bestAvgHours > 1.0 else { return nil }
-        return Insight(
+
+        let bestAvg = avg(best.value)
+        let bestAvgHours = bestAvg / 3600
+
+        // Both gates: ≥ 2 h *and* clearly longer than the overall average gap.
+        guard bestAvgHours >= 2.0 else { return nil }
+        guard bestAvg >= overallAvg * 1.5 else { return nil }
+
+        let insight = Insight(
             id: "pattern_longest_gap_\(best.key)",
             emoji: "🌙",
             title: "Longest stretch",
-            description: "Longest stretch is usually between \(bucketLabel(best.key)) (avg \(formatHours(bestAvgHours)))",
+            description: "Longest stretch is usually between \(bucketLabel(best.key)) (avg \(formatHours(bestAvgHours))).",
             category: .pattern, trend: nil
         )
+        return (insight, best.key)
     }
 
-    private func busiestWindowInsight(_ pool: [FeedingSession]) -> Insight? {
+    private func busiestWindowInsight(_ pool: [FeedingSession]) -> (insight: Insight, bucket: Int)? {
         var counts: [Int: Int] = [:]
         for s in pool {
             let bucket = Calendar.current.component(.hour, from: s.startTime) / 4
             counts[bucket, default: 0] += 1
         }
         let total = counts.values.reduce(0, +)
-        guard total >= 6 else { return nil }
+        guard total >= 8 else { return nil }
         let avgPerBucket = Double(total) / 6.0
         guard let best = counts.max(by: { $0.value < $1.value }),
               Double(best.value) > 1.5 * avgPerBucket
         else { return nil }
-        return Insight(
+        let insight = Insight(
             id: "pattern_busiest_\(best.key)",
             emoji: "⏰",
             title: "Busiest window",
             description: "Most feeds happen between \(bucketLabel(best.key)).",
             category: .pattern, trend: nil
         )
+        return (insight, best.key)
     }
 
     // MARK: - Trend insights

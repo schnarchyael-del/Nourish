@@ -1180,6 +1180,11 @@ private struct BabyEditView: View {
                         .padding(.bottom, 20)
                     saveButton {
                         nameFocused = false
+                        // Push the updated profile (name / DOB / gender) to
+                        // Firestore so the next launch's reconcileProfile
+                        // doesn't overwrite the local edit with the stale
+                        // cloud value.
+                        Task { await FirestoreService.shared.pushProfile() }
                         AnalyticsService.babyProfileEdited()
                         dismiss()
                     }
