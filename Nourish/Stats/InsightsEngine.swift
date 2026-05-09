@@ -52,63 +52,90 @@ struct InsightsEngine {
         self.now = now
     }
 
-    /// Suppression windows.
-    private let trendSuppressionDays = 7
-    private let patternSuppressionDays = 14
+    /// Two-phase visibility per insight:
+    ///   * stick   — insight stays visible while still relevant
+    ///   * cycle   — total time before the insight can resurface
+    /// (cycle == nil means permanently retired after the stick window expires.)
+    private struct TimingPolicy {
+        let stickDays: Int
+        let cycleDays: Int?
+    }
+
+    private func policy(for category: Insight.Category) -> TimingPolicy {
+        switch category {
+        case .milestone: return TimingPolicy(stickDays: 7, cycleDays: nil)   // visible 7d, then retired
+        case .trend:     return TimingPolicy(stickDays: 2, cycleDays: 7)     // 2d on, 5d off
+        case .pattern:   return TimingPolicy(stickDays: 3, cycleDays: 14)    // 3d on, 11d off
+        }
+    }
 
     func compute(maxCount: Int = 3) -> [Insight] {
         var pool: [Insight] = []
 
         // Milestones first — always evaluated against the full session set.
-        pool.append(contentsOf: milestones().filter { !milestoneSeen($0.id) })
+        pool.append(contentsOf: milestones().filter { shouldShow($0) })
 
         // Trends — only when the filter has something to compare against.
         if filter.trendWindowDays != nil {
-            pool.append(contentsOf: trends().filter {
-                !recentlyShown($0.id, withinDays: trendSuppressionDays)
-            })
+            pool.append(contentsOf: trends().filter { shouldShow($0) })
         }
 
         // Patterns.
-        pool.append(contentsOf: patterns().filter {
-            !recentlyShown($0.id, withinDays: patternSuppressionDays)
-        })
+        pool.append(contentsOf: patterns().filter { shouldShow($0) })
 
         return Array(pool.sorted { $0.category.rawValue < $1.category.rawValue }.prefix(maxCount))
     }
 
     func markShown(_ insights: [Insight]) {
         let defaults = UserDefaults.standard
-        var seen = Set(defaults.stringArray(forKey: InsightKey.milestonesSeen) ?? [])
         for insight in insights {
-            switch insight.category {
-            case .milestone:
-                seen.insert(insight.id)
-            case .trend, .pattern:
-                defaults.set(now.timeIntervalSince1970,
-                             forKey: InsightKey.lastShown(insight.id))
+            let key = InsightKey.firstShown(insight.id)
+            let p = policy(for: insight.category)
+            // Only stamp the firstShown date the first time we surface this
+            // insight — or when its cycle has expired and we're starting a
+            // new round. Don't update on every render; otherwise the stick
+            // window would never elapse.
+            if let firstShown = defaults.object(forKey: key) as? Double {
+                if let cycleDays = p.cycleDays {
+                    let elapsed = now.timeIntervalSince1970 - firstShown
+                    if elapsed >= Double(cycleDays) * 86_400 {
+                        defaults.set(now.timeIntervalSince1970, forKey: key)
+                    }
+                }
+                // Otherwise leave firstShown alone — sticky cycle in progress.
+            } else {
+                defaults.set(now.timeIntervalSince1970, forKey: key)
             }
         }
-        defaults.set(Array(seen), forKey: InsightKey.milestonesSeen)
+    }
+
+    /// Returns true if an insight should be displayed in this compute pass.
+    /// Backwards-compatible with the old `insights_milestones_seen` set so
+    /// existing users don't suddenly see retired milestones again.
+    private func shouldShow(_ insight: Insight) -> Bool {
+        if insight.category == .milestone {
+            let legacySeen = Set(UserDefaults.standard.stringArray(forKey: InsightKey.legacyMilestonesSeen) ?? [])
+            if legacySeen.contains(insight.id) { return false }
+        }
+
+        let p = policy(for: insight.category)
+        guard let firstShown = UserDefaults.standard.object(forKey: InsightKey.firstShown(insight.id)) as? Double else {
+            return true                         // first time ever — surface fresh
+        }
+        let elapsed = now.timeIntervalSince1970 - firstShown
+        if elapsed < Double(p.stickDays) * 86_400 { return true }   // still in stick window
+        guard let cycleDays = p.cycleDays else { return false }     // permanent retirement
+        return elapsed >= Double(cycleDays) * 86_400                // re-surface after full cycle
     }
 
     // MARK: - Staleness storage
 
     private enum InsightKey {
-        static let milestonesSeen = "insights_milestones_seen"
-        static func lastShown(_ id: String) -> String { "insight_lastShown_\(id)" }
-    }
-
-    private func milestoneSeen(_ id: String) -> Bool {
-        let seen = Set(UserDefaults.standard.stringArray(forKey: InsightKey.milestonesSeen) ?? [])
-        return seen.contains(id)
-    }
-
-    private func recentlyShown(_ id: String, withinDays days: Int) -> Bool {
-        let key = InsightKey.lastShown(id)
-        guard let last = UserDefaults.standard.object(forKey: key) as? Double else { return false }
-        let secs = Double(days) * 86_400
-        return now.timeIntervalSince1970 - last < secs
+        // `insight_lastShown_<id>` was the original key — keep the same name so
+        // upgrading users don't see a flood of old insights re-fire. We just
+        // re-interpret the stored value as `firstShown` going forward.
+        static func firstShown(_ id: String) -> String { "insight_lastShown_\(id)" }
+        static let legacyMilestonesSeen = "insights_milestones_seen"
     }
 
     // MARK: - Session sets
