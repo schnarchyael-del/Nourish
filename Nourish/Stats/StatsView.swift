@@ -131,6 +131,7 @@ struct StatsView: View {
                             barChartCard
                             breastVsBottleCard
                             avgTimeCard
+                            insightsSection
                         }
                         .padding(.horizontal, 20)
                         .padding(.bottom, 16)
@@ -500,6 +501,84 @@ struct StatsView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
+    }
+
+    // MARK: Insights
+
+    private var insightsTimeFilter: InsightsTimeFilter {
+        switch selectedTab {
+        case 0: return .day
+        case 2: return .month
+        case 3: return .history
+        default: return .week
+        }
+    }
+
+    private var insights: [Insight] {
+        InsightsEngine(sessions: sessions, filter: insightsTimeFilter).compute(maxCount: 3)
+    }
+
+    @ViewBuilder
+    private var insightsSection: some View {
+        if !insights.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Insights")
+                        .font(.nSerif(20))
+                        .foregroundStyle(c.ink)
+                    Spacer()
+                }
+                .padding(.bottom, 10)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(insights) { insight in
+                            insightCard(insight)
+                        }
+                    }
+                    .padding(.trailing, 4)
+                }
+                .scrollClipDisabled()
+                .onAppear {
+                    InsightsEngine(sessions: sessions, filter: insightsTimeFilter).markShown(insights)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private func insightCard(_ insight: Insight) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(insight.emoji)
+                    .font(.nSans(20))
+                    .frame(width: 32, height: 32)
+                    .background(c.bg)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(c.border, lineWidth: 1))
+                if let trend = insight.trend {
+                    Image(systemName: trend == .up ? "arrow.up.right" : "arrow.down.right")
+                        .font(.nSans(11, weight: .bold))
+                        .foregroundStyle(trend == .up ? c.green : c.leftAccent)
+                }
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(insight.title)
+                    .font(.nSans(13, weight: .bold))
+                    .foregroundStyle(c.ink)
+                Text(insight.description)
+                    .font(.nSans(13))
+                    .foregroundStyle(c.muted)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(width: 260, alignment: .leading)
+        .padding(14)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1))
     }
 
     // MARK: History list
