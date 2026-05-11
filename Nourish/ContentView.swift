@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var sessionStore  = SessionStore()
     @State private var selectedTab   = 0
     @State private var showLogScreen = false
+    @StateObject private var tooltips = TooltipManager()
+    @Environment(\.scenePhase) private var scenePhase
 
     private var appTheme: AppTheme {
         AppTheme(rawValue: appThemeRaw) ?? .system
@@ -50,6 +52,23 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: hasCompletedOnboarding)
         .preferredColorScheme(appTheme.preferredScheme)
+        .environmentObject(tooltips)
+        .tooltipOverlay(tooltips)
+        // Within-app navigation: clear the active tooltip without marking
+        // seen, so the user can encounter it again next time the target
+        // screen is shown.
+        .onChange(of: selectedTab)            { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: showLogScreen)          { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: sessionStore.isActive)  { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: scenePhase) { _, phase in
+            // Only treat real backgrounding as "navigated away". .inactive
+            // can fire transiently during launch/resume and would prematurely
+            // mark tooltips seen.
+            if phase == .background {
+                tooltips.clearOnNavigateAway()
+                tooltips.resetAppLaunchGate()
+            }
+        }
     }
 
     // MARK: Main app shell

@@ -6,12 +6,14 @@ struct StatsView: View {
 
     @Environment(\.nourishColors) private var c
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var tooltips: TooltipManager
     @Query(sort: \FeedingSession.startTime, order: SortOrder.reverse) private var sessions: [FeedingSession]
 
     @State private var selectedTab = 1   // 0=Day, 1=Week, 2=Month
     @State private var chartAnimated = false
     @State private var sessionPendingDelete: FeedingSession?
     @State private var editingSession: FeedingSession?
+    @State private var didEvaluateTooltips = false
 
     // MARK: Computed stats
 
@@ -148,12 +150,16 @@ struct StatsView: View {
             if newTab == 3 {
                 AnalyticsService.historyViewed()
             }
+            evaluateTooltips()
         }
         .onAppear {
             AnalyticsService.statsViewed()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 withAnimation { chartAnimated = true }
             }
+            guard !didEvaluateTooltips else { return }
+            didEvaluateTooltips = true
+            evaluateTooltips()
         }
         .alert(
             "Delete this session?",
@@ -177,6 +183,19 @@ struct StatsView: View {
                 onSave: { editingSession = nil }
             )
             .environment(\.nourishColors, c)
+        }
+    }
+
+    private func evaluateTooltips() {
+        guard tooltips.active == nil else { return }
+        if selectedTab == 3 {
+            if !sessions.isEmpty, !tooltips.hasSeen(.historySwipe) {
+                tooltips.show(.historySwipe)
+            }
+        } else {
+            if sessions.count >= 3, !tooltips.hasSeen(.statsHint) {
+                tooltips.show(.statsHint)
+            }
         }
     }
 
@@ -589,7 +608,7 @@ struct StatsView: View {
             ScrollView { historyEmptyState }
         } else {
             List {
-                ForEach(sessions) { session in
+                ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
                     VStack(spacing: 0) {
                         historyRow(session)
                         Divider().overlay(c.border).padding(.horizontal, 20)
@@ -597,6 +616,7 @@ struct StatsView: View {
                     .listRowBackground(c.bg)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets())
+                    .tooltipTargetIf(index == 0, .historySwipe)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             sessionPendingDelete = session

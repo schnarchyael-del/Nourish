@@ -26,6 +26,7 @@ struct BottomTabBar: View {
             HStack(spacing: 0) {
                 ForEach(NourishTab.allCases, id: \.rawValue) { tab in
                     tabButton(tab)
+                        .tooltipTargetIf(tab == .settings, .settings)
                 }
             }
             .padding(.top, 8)

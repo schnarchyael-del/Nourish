@@ -4,6 +4,7 @@ import SwiftData
 struct HomeView: View {
     @Environment(\.nourishColors) private var c
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var tooltips: TooltipManager
 
     let store: SessionStore
     let onLog: () -> Void
@@ -15,6 +16,7 @@ struct HomeView: View {
     @State private var showBottleSheet   = false
     @State private var avatarTapCount    = 0
     @State private var avatarResetTask: DispatchWorkItem? = nil
+    @State private var didInitialEvaluate = false
 
     private var lastSession: FeedingSession? { sessions.first }
 
@@ -47,6 +49,49 @@ struct HomeView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(28)
                 .presentationBackground(c.bg)
+        }
+        .onAppear {
+            // .onAppear can fire multiple times during initial layout and
+            // tab transitions in SwiftUI; gate to once per HomeView instance.
+            guard !didInitialEvaluate else { return }
+            didInitialEvaluate = true
+            tooltips.bumpHomeAppearanceIfFirstThisLaunch(haveSessions: !sessions.isEmpty)
+            evaluateTooltips()
+        }
+        .task(id: sessions.first?.id) {
+            // @Query results land asynchronously (initial fetch + Firestore
+            // sync). Whenever the leading session id changes — including
+            // the initial nil → real-id transition — count this launch and
+            // re-evaluate so the widget tip can fire if it's earned.
+            tooltips.bumpHomeAppearanceIfFirstThisLaunch(haveSessions: !sessions.isEmpty)
+            evaluateTooltips()
+        }
+        .onChange(of: tooltips.active) { _, new in
+            // When a tooltip dismisses, re-evaluate so the next one in the
+            // home sequence (e.g. settings after startFeed) can chain in.
+            if new == nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    evaluateTooltips()
+                }
+            }
+        }
+    }
+
+    private func evaluateTooltips() {
+        guard tooltips.active == nil else { return }
+
+        if !tooltips.hasSeen(.startFeed) {
+            tooltips.show(.startFeed)
+            return
+        }
+        if !tooltips.hasSeen(.settings) {
+            tooltips.show(.settings)
+            return
+        }
+        if !sessions.isEmpty,
+           !tooltips.hasSeen(.widgetTip),
+           tooltips.homeAppearancesAfterFirstSession >= 2 {
+            tooltips.show(.widgetTip)
         }
     }
 
@@ -200,6 +245,7 @@ struct HomeView: View {
     private var breastButtons: some View {
         HStack(spacing: 14) {
             sideButton(.left)
+                .tooltipTarget(.startFeed)
             sideButton(.right)
         }
         .padding(.horizontal, 20)

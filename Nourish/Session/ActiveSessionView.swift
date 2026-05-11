@@ -6,6 +6,7 @@ import AVFoundation
 struct ActiveSessionView: View {
     @Environment(\.nourishColors) private var c
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var tooltips: TooltipManager
     @AppStorage("babyGender")    private var babyGender    = "Girl"
     @AppStorage("alarmEnabled")  private var alarmEnabled  = true
     @AppStorage("alarmMinutes")  private var alarmMinutes  = 45
@@ -18,6 +19,7 @@ struct ActiveSessionView: View {
     @State private var showAlarmModal = false
     @State private var alarmFired    = false
     @State private var showDiscardConfirm = false
+    @State private var didEvaluateTooltips = false
 
     // Captured at alarm-fire time so save closure has stable values
     @State private var capturedStartTime:    Date     = .now
@@ -132,7 +134,14 @@ struct ActiveSessionView: View {
             .padding(.bottom, 14)
         }
         .preferredColorScheme(darkMode ? .dark : nil)
-        .onAppear { msgIndex = Int.random(in: 0..<encouragements.count) }
+        .onAppear {
+            msgIndex = Int.random(in: 0..<encouragements.count)
+            guard !didEvaluateTooltips else { return }
+            didEvaluateTooltips = true
+            if !tooltips.hasSeen(.switchSide) {
+                tooltips.show(.switchSide)
+            }
+        }
         .onChange(of: store.elapsedSeconds) { _, newValue in
             guard alarmEnabled, !alarmFired, !showAlarmModal else { return }
             if newValue >= alarmMinutes * 60 {
@@ -344,6 +353,10 @@ struct ActiveSessionView: View {
             Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 store.switchSide()
+                if !tooltips.hasSeen(.endSession) {
+                    if tooltips.active == .switchSide { tooltips.dismiss() }
+                    tooltips.show(.endSession, after: 0.45)
+                }
             } label: {
                 HStack(spacing: 10) {
                     Text("⇄")
@@ -362,6 +375,7 @@ struct ActiveSessionView: View {
                 .overlay(Capsule().stroke(switchBorder, lineWidth: 1))
             }
             .buttonStyle(ScaleButtonStyle())
+            .tooltipTarget(.switchSide)
 
             // End session
             Button {
@@ -394,6 +408,7 @@ struct ActiveSessionView: View {
                 )
             }
             .buttonStyle(ScaleButtonStyle(scale: 0.97))
+            .tooltipTarget(.endSession)
         }
     }
 
