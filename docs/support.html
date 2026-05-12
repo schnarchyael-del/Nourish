@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — Nourish</title>
+<meta name="description" content="Support and FAQ for Nourish, a baby feeding tracker app.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FAF7F2;
+    --ink: #2C1810;
+    --muted: #6B5B52;
+    --accent: #C05840;
+    --rule: rgba(44, 24, 16, 0.10);
+    --card: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  main {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+  }
+  header {
+    margin-bottom: 36px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .eyebrow {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+  }
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400;
+    font-size: 44px;
+    line-height: 1.1;
+    margin: 0 0 14px;
+    letter-spacing: -0.01em;
+  }
+  .tagline {
+    color: var(--muted);
+    font-size: 17px;
+    margin: 0;
+  }
+  h2 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400;
+    font-size: 28px;
+    line-height: 1.2;
+    margin: 44px 0 16px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 14px; }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(192, 88, 64, 0.35);
+    transition: border-color 0.15s ease;
+  }
+  a:hover { border-bottom-color: var(--accent); }
+  .faq {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .faq details {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 4px 22px;
+    margin-bottom: 12px;
+    transition: border-color 0.15s ease;
+  }
+  .faq details[open] {
+    border-color: rgba(192, 88, 64, 0.35);
+  }
+  .faq summary {
+    font-weight: 600;
+    font-size: 16.5px;
+    padding: 16px 0;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after {
+    content: '+';
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1;
+    transition: transform 0.2s ease;
+  }
+  .faq details[open] summary::after {
+    content: '–';
+  }
+  .faq .answer {
+    padding: 0 0 18px;
+    color: var(--ink);
+  }
+  .faq .answer p:last-child { margin-bottom: 0; }
+  .contact-card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: 28px;
+    margin-top: 16px;
+    text-align: center;
+  }
+  .contact-card h3 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400;
+    font-size: 22px;
+    margin: 0 0 6px;
+  }
+  .contact-card p {
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  .email-btn {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--bg);
+    padding: 12px 22px;
+    border-radius: 999px;
+    font-weight: 600;
+    border-bottom: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  .email-btn:hover {
+    opacity: 0.9;
+    border-bottom: none;
+    transform: translateY(-1px);
+  }
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+  }
+  footer a { color: var(--muted); border-bottom-color: rgba(107, 91, 82, 0.3); }
+  @media (max-width: 520px) {
+    main { padding: 36px 20px 72px; }
+    h1 { font-size: 34px; }
+    h2 { font-size: 24px; margin-top: 36px; }
+    body { font-size: 15.5px; }
+    .faq details { padding: 4px 18px; }
+    .contact-card { padding: 22px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Nourish — Feed Tracker</p>
+    <h1>Support</h1>
+    <p class="tagline">A gentle, focused feeding tracker for the early weeks and beyond — log breast and bottle feeds, watch patterns emerge, and free up your hands for the baby.</p>
+  </header>
+
+  <h2>Frequently asked questions</h2>
+
+  <ul class="faq">
+    <li>
+      <details>
+        <summary>How do I track a feed?</summary>
+        <div class="answer">
+          <p>From the home screen, tap the <strong>left</strong> or <strong>right breast</strong> button to start an active session, or tap <strong>Log</strong> (the center tab) to record a bottle feed or a feed that already happened.</p>
+          <p>During an active session you can switch sides with one tap, pause if you need to (the timer freezes — including on your lock-screen widget), and end the session when you're done. Nourish saves the times, durations, and per-side minutes automatically.</p>
+        </div>
+      </details>
+    </li>
+
+    <li>
+      <details>
+        <summary>How do I sync across devices?</summary>
+        <div class="answer">
+          <p>Sign in on each device with the same account — either <strong>Sign in with Apple</strong> or the same <strong>email and password</strong>. Once signed in, your baby profile and feeding history sync automatically through your private Firebase storage.</p>
+          <p>Syncing happens in the background whenever the device has an internet connection. If a session was logged offline, it'll appear on your other devices the next time the app comes online.</p>
+        </div>
+      </details>
+    </li>
+
+    <li>
+      <details>
+        <summary>How do I export my data?</summary>
+        <div class="answer">
+          <p>To request a full export of your feeding history and baby profile in a portable format (CSV or JSON), email <a href="mailto:schnarch.yael@gmail.com">schnarch.yael@gmail.com</a> from the address associated with your account. We'll send your data back within a few business days.</p>
+        </div>
+      </details>
+    </li>
+
+    <li>
+      <details>
+        <summary>How do I delete my account and data?</summary>
+        <div class="answer">
+          <p>Open the app and go to <strong>Settings → Account → Delete account</strong>. This permanently removes your authentication record, your baby profile, and every feeding session from our systems. The action cannot be undone.</p>
+          <p>If you can't sign in to perform this yourself, email <a href="mailto:schnarch.yael@gmail.com">schnarch.yael@gmail.com</a> from the address on your account and we'll handle deletion for you.</p>
+        </div>
+      </details>
+    </li>
+
+    <li>
+      <details>
+        <summary>How do I contact support?</summary>
+        <div class="answer">
+          <p>Email <a href="mailto:schnarch.yael@gmail.com">schnarch.yael@gmail.com</a>. Nourish is built by an independent developer, so replies come directly from a real person — usually within a couple of days. If you're reporting a bug, please include your iOS version and the steps to reproduce; it makes the fix much faster.</p>
+        </div>
+      </details>
+    </li>
+  </ul>
+
+  <h2>Still need help?</h2>
+  <div class="contact-card">
+    <h3>We're here to help</h3>
+    <p>Bug reports, feature requests, or just a kind word — we read every message.</p>
+    <a class="email-btn" href="mailto:schnarch.yael@gmail.com">Email support</a>
+  </div>
+
+  <footer>
+    <p>Nourish — Feed Tracker · Made with care by Yael Schnarch · <a href="privacy-policy.html">Privacy Policy</a></p>
+  </footer>
+</main>
+</body>
+</html>
