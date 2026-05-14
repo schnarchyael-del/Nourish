@@ -2,12 +2,13 @@ import SwiftUI
 import AuthenticationServices
 
 fileprivate enum OnboardingField: Hashable {
-    case babyName, userName, partnerName
+    case babyName, userName, partnerName, partnerCode
 }
 
 struct OnboardingView: View {
     @Environment(\.nourishColors) private var c
     @ObservedObject private var auth = AuthManager.shared
+    @ObservedObject private var family = FamilyService.shared
     let onComplete: () -> Void
 
     @State private var step = 0
@@ -16,17 +17,28 @@ struct OnboardingView: View {
     @State private var babyGender  = "Girl"
     @State private var userName    = ""
     @State private var partnerName = ""
+
+    // Partner step
+    @State private var partnerCodeInput = ""
+    @State private var partnerJoinError: String? = nil
+    @State private var partnerIsJoining = false
+    @State private var didJoinPartner = false   // set when join succeeds — skips baby step
+
     @State private var showDOBPicker = false
     @State private var showEmailSignIn = false
     @FocusState private var focus: OnboardingField?
 
+    // MARK: Step ids — order is: welcome → partner → baby → done
+
+    private enum Step: Int { case welcome = 0, partner = 1, baby = 2 }
+    private var currentStep: Step { Step(rawValue: step) ?? .welcome }
+
     var body: some View {
         Group {
-            switch step {
-            case 0: welcomeStep
-            case 1: babyStep
-            case 2: partnerStep
-            default: welcomeStep
+            switch currentStep {
+            case .welcome: welcomeStep
+            case .partner: partnerStep
+            case .baby:    babyStep
             }
         }
         .animation(.easeInOut(duration: 0.22), value: step)
@@ -41,7 +53,7 @@ struct OnboardingView: View {
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn && step == 0 {
                 showEmailSignIn = false
-                withAnimation { step = 1 }
+                withAnimation { step = Step.partner.rawValue }
             }
         }
     }
@@ -129,7 +141,7 @@ struct OnboardingView: View {
                 }
 
                 Button("Continue without an account") {
-                    withAnimation { step = 1 }
+                    withAnimation { step = Step.baby.rawValue }
                 }
                 .font(.nSans(13, weight: .semibold))
                 .foregroundStyle(c.muted)
@@ -141,12 +153,176 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: Step 1 – Baby info
+    // MARK: Step 1 – Partner code (NEW order — comes before baby profile)
+
+    private var partnerStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                backButton { step = Step.welcome.rawValue }
+                    .padding(.bottom, 20)
+
+                progressDots
+                    .padding(.bottom, 28)
+
+                Text("Feed together 👫")
+                    .font(.nSerif(28))
+                    .foregroundStyle(c.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 6)
+
+                Text("If your partner is already using Nourish, enter their code to sync the same baby and feeding history. Otherwise, set up on your own and invite them later.")
+                    .font(.nSans(14))
+                    .foregroundStyle(c.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineSpacing(4)
+                    .padding(.bottom, 24)
+
+                joinCodeCard
+                    .padding(.bottom, 16)
+
+                Text("or".uppercased())
+                    .font(.nSans(11, weight: .bold))
+                    .foregroundStyle(c.muted)
+                    .kerning(0.09 * 11)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
+
+                ctaButton(
+                    "Set up a new baby →",
+                    disabled: partnerIsJoining
+                ) {
+                    focus = nil
+                    withAnimation { step = Step.baby.rawValue }
+                }
+                .padding(.bottom, 10)
+
+                Button("Skip — I'll add a partner later") {
+                    focus = nil
+                    withAnimation { step = Step.baby.rawValue }
+                }
+                .font(.nSans(13))
+                .foregroundStyle(c.muted)
+                .underline()
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+            }
+            .padding(.horizontal, 26)
+            .padding(.top, 58 + 14)
+            .padding(.bottom, 28)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private var joinCodeCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("🔗").font(.nSans(20))
+                Text("I have a partner code")
+                    .font(.nSans(17, weight: .bold))
+                    .foregroundStyle(c.ink)
+            }
+
+            Text("Ask your partner to open Nourish → Settings → Partner sharing.")
+                .font(.nSans(13))
+                .foregroundStyle(c.muted)
+                .lineSpacing(3)
+
+            HStack(spacing: 10) {
+                TextField("ABC123", text: $partnerCodeInput)
+                    .textFieldStyle(.plain)
+                    .font(.nSans(18, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                    .focused($focus, equals: .partnerCode)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.characters)
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .background(c.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(focus == .partnerCode ? c.leftAccent : c.border,
+                                    lineWidth: focus == .partnerCode ? 1.5 : 1)
+                    )
+                    .onChange(of: partnerCodeInput) { _, v in
+                        partnerCodeInput = String(v.uppercased()
+                            .filter { $0.isLetter || $0.isNumber }
+                            .prefix(6))
+                    }
+                Button {
+                    Task { await joinWithPartnerCode() }
+                } label: {
+                    Group {
+                        if partnerIsJoining {
+                            ProgressView().tint(.white).frame(width: 80)
+                        } else {
+                            Text("Join")
+                                .font(.nSans(15, weight: .bold))
+                                .frame(width: 80)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(height: 48)
+                    .background(canJoin ? c.leftAccent : c.muted.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .disabled(!canJoin)
+            }
+
+            if let err = partnerJoinError {
+                Text(err)
+                    .font(.nSans(12))
+                    .foregroundStyle(.red.opacity(0.85))
+            }
+
+            if !auth.isSignedIn {
+                Text("Sign in on the welcome screen first to join a partner.")
+                    .font(.nSans(12))
+                    .foregroundStyle(c.muted)
+                    .padding(.top, 2)
+            }
+        }
+        .padding(18)
+        .background(c.greenBg)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.green.opacity(0.25), lineWidth: 1))
+    }
+
+    private var canJoin: Bool {
+        auth.isSignedIn
+        && partnerCodeInput.count == 6
+        && !partnerIsJoining
+    }
+
+    @MainActor
+    private func joinWithPartnerCode() async {
+        guard let uid = auth.userId else {
+            partnerJoinError = "Sign in first so we can link your account."
+            return
+        }
+        partnerJoinError = nil
+        partnerIsJoining = true
+        defer { partnerIsJoining = false }
+        do {
+            try await family.joinFamily(code: partnerCodeInput, uid: uid)
+            didJoinPartner = true
+            // The family's baby profile will arrive via the listener; finish
+            // onboarding immediately so the user goes straight to Home.
+            finishOnboarding(skipProfileWrite: true)
+        } catch {
+            partnerJoinError = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+        }
+    }
+
+    // MARK: Step 2 – Baby info (only reached if user didn't join a partner)
 
     private var babyStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                backButton { step = 0 }
+                backButton { step = Step.partner.rawValue }
                     .padding(.bottom, 20)
 
                 progressDots
@@ -187,9 +363,12 @@ struct OnboardingView: View {
                     .onSubmit { focus = nil }
                     .padding(.bottom, 24)
 
-                ctaButton("Continue →", disabled: babyName.trimmingCharacters(in: .whitespaces).isEmpty) {
+                ctaButton(
+                    "Start tracking →",
+                    disabled: babyName.trimmingCharacters(in: .whitespaces).isEmpty
+                ) {
                     focus = nil
-                    step = 2
+                    finishOnboarding(skipProfileWrite: false)
                 }
             }
             .padding(.horizontal, 26)
@@ -229,7 +408,6 @@ struct OnboardingView: View {
         }
     }
 
-    // Tappable row that expands into a full .graphical DatePicker
     private var dobPickerField: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -272,104 +450,38 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: Step 2 – Partner
+    // MARK: Finish
 
-    private var partnerStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            backButton { step = 1 }
-                .padding(.horizontal, 26)
-                .padding(.top, 58 + 14)
-                .padding(.bottom, 20)
+    /// Writes baby-profile defaults, completes onboarding, and (if the user is
+    /// signed in but didn't join a family) creates a fresh family for them.
+    /// When `skipProfileWrite` is true, the partner's profile is the source of
+    /// truth — we leave UserDefaults alone so the listener fills it in.
+    private func finishOnboarding(skipProfileWrite: Bool) {
+        focus = nil
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    progressDots
-                        .padding(.bottom, 28)
-
-                    Text("Feed together 👫")
-                        .font(.nSerif(28))
-                        .foregroundStyle(c.ink)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, 6)
-
-                    Text("Invite your partner so you both can log and view sessions.")
-                        .font(.nSans(14))
-                        .foregroundStyle(c.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineSpacing(4)
-                        .padding(.bottom, 24)
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Share with your partner")
-                            .font(.nSans(20, weight: .bold))
-                            .foregroundStyle(c.ink)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 12)
-
-                        fieldLabel("Their name")
-                        OnboardingTextField(text: $partnerName, placeholder: "Partner's name", colors: c)
-                            .focused($focus, equals: .partnerName)
-                            .submitLabel(.done)
-                            .onSubmit { focus = nil }
-                            .padding(.bottom, 14)
-
-                        Text("They can view and log sessions. You'll both see each other's activity.")
-                            .font(.nSans(13))
-                            .foregroundStyle(c.muted)
-                            .lineSpacing(4)
-                            .padding(.bottom, 14)
-
-                        HStack(spacing: 8) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.nSans(15, weight: .semibold))
-                            Text("Share invite link")
-                                .font(.nSans(15, weight: .semibold))
-                            Text("· coming soon")
-                                .font(.nSans(13))
-                        }
-                        .foregroundStyle(c.muted)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(c.input.opacity(0.5))
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(c.border, lineWidth: 1.5))
-                    }
-                    .padding(20)
-                    .background(c.greenBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.green.opacity(0.2), lineWidth: 1))
-                    .padding(.bottom, 24)
-
-                    ctaButton("Start tracking →", action: finishOnboarding)
-
-                    Button("Skip for now", action: finishOnboarding)
-                        .font(.nSans(14))
-                        .foregroundStyle(c.muted)
-                        .underline()
-                        .buttonStyle(.plain)
-                        .background(.clear)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 14)
-                }
-                .padding(.horizontal, 26)
-                .padding(.bottom, 28)
-            }
-            .scrollDismissesKeyboard(.interactively)
+        if !skipProfileWrite {
+            UserDefaults.standard.set(babyName, forKey: "babyName")
+            UserDefaults.standard.set(babyDOB.timeIntervalSince1970, forKey: "babyDOBTimestamp")
+            UserDefaults.standard.set(babyGender, forKey: "babyGender")
         }
+        UserDefaults.standard.set(userName.isEmpty ? "You" : userName, forKey: "userName")
+        UserDefaults.standard.set(partnerName, forKey: "partnerName")
+
+        AnalyticsService.babyProfileCreated()
+
+        // If signed in but we didn't join a partner, make sure a family exists.
+        if !skipProfileWrite, let uid = auth.userId, family.familyId == nil {
+            Task { _ = try? await family.createFamily(uid: uid) }
+        } else if !skipProfileWrite, family.familyId != nil {
+            // Family was already created during sign-in auto-migration; push
+            // the freshly entered profile to it.
+            Task { await family.pushProfile() }
+        }
+
+        onComplete()
     }
 
     // MARK: Helpers
-
-    private func finishOnboarding() {
-        focus = nil
-        UserDefaults.standard.set(babyName, forKey: "babyName")
-        UserDefaults.standard.set(babyDOB.timeIntervalSince1970, forKey: "babyDOBTimestamp")
-        UserDefaults.standard.set(babyGender, forKey: "babyGender")
-        UserDefaults.standard.set(userName.isEmpty ? "You" : userName, forKey: "userName")
-        UserDefaults.standard.set(partnerName, forKey: "partnerName")
-        AnalyticsService.babyProfileCreated()
-        onComplete()
-    }
 
     private var progressDots: some View {
         HStack(spacing: 8) {

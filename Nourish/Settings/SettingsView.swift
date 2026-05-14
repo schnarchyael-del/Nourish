@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(\.nourishColors) private var c
     @ObservedObject private var auth = AuthManager.shared
     @ObservedObject private var firestore = FirestoreService.shared
+    @ObservedObject private var family = FamilyService.shared
 
     @AppStorage("userName")             private var userName             = "Sarah"
     @AppStorage("babyName")             private var babyName             = "Lily"
@@ -18,8 +19,6 @@ struct SettingsView: View {
     @AppStorage("reminderEnabled")      private var reminderEnabled      = false
     @AppStorage("reminderHours")        private var reminderHours: Double = 3
     @AppStorage("partnerActivityNotif") private var partnerActivityNotif = true
-    @AppStorage("familyCode")           private var familyCode           = ""
-    @AppStorage("partnerConnected")     private var partnerConnected     = false
 
     @State private var activeSheet: ActiveSheet? = nil
     @State private var showEmailSignIn = false
@@ -43,7 +42,9 @@ struct SettingsView: View {
     }
 
     private var partnerSubtitle: String {
-        partnerConnected ? "Connected with partner" : "Not set up"
+        guard auth.isSignedIn else { return "Sign in to share" }
+        guard family.familyId != nil else { return "Not set up" }
+        return family.memberUids.count > 1 ? "Connected with partner" : "Share your code"
     }
 
     // MARK: Body
@@ -74,9 +75,6 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("Signing into a different account will replace your local feeding data with the data on this account. This can't be undone.")
-            }
-            .onAppear {
-                if familyCode.isEmpty { familyCode = Self.generateFamilyCode() }
             }
             .onChange(of: reminderEnabled) { _, _ in
                 NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
@@ -406,10 +404,6 @@ struct SettingsView: View {
         .padding(.horizontal, 18).padding(.vertical, 14)
     }
 
-    private static func generateFamilyCode() -> String {
-        let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-        return String((0..<6).map { _ in chars.randomElement()! })
-    }
 }
 
 // MARK: - Sheet header (shared by all sub-views)
@@ -593,20 +587,31 @@ private struct AppearanceSubView: View {
 private struct PartnerSubView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.nourishColors) private var c
-    @AppStorage("familyCode")       private var familyCode       = ""
-    @AppStorage("partnerConnected") private var partnerConnected = false
+    @ObservedObject private var auth = AuthManager.shared
+    @ObservedObject private var family = FamilyService.shared
 
     @State private var joinCodeInput = ""
     @State private var isJoining     = false
+    @State private var isLeaving     = false
     @State private var joinError: String? = nil
     @State private var codeCopied    = false
+
+    private var partnerConnected: Bool { family.memberUids.count > 1 }
 
     var body: some View {
         VStack(spacing: 0) {
             NourishSheetHeader(title: "Partner Sharing", onDismiss: { dismiss() })
             ScrollView {
                 VStack(spacing: 0) {
-                    partnerContent
+                    if !auth.isSignedIn {
+                        signInPrompt
+                    } else if let code = family.familyId {
+                        partnerContent(code: code)
+                    } else {
+                        // Signed in but no family yet — extremely rare, but
+                        // handle gracefully (offer to create one).
+                        creatingFamilyCard
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
@@ -614,12 +619,47 @@ private struct PartnerSubView: View {
             }
         }
         .background(c.bg.ignoresSafeArea())
-        .onAppear {
-            if familyCode.isEmpty { familyCode = Self.generateFamilyCode() }
+    }
+
+    private var signInPrompt: some View {
+        VStack(spacing: 12) {
+            Text("Sign in to share")
+                .font(.nSerif(22))
+                .foregroundStyle(c.ink)
+            Text("Partner sharing syncs your baby and feeding history across both devices. Create a free account from the Account section above to get started.")
+                .font(.nSans(14))
+                .foregroundStyle(c.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.border, lineWidth: 1))
+    }
+
+    private var creatingFamilyCard: some View {
+        VStack(spacing: 12) {
+            ProgressView().tint(c.leftAccent)
+            Text("Setting up your family code…")
+                .font(.nSans(14))
+                .foregroundStyle(c.muted)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.border, lineWidth: 1))
+        .task {
+            // If we're somehow signed in without a family, kick one off.
+            if let uid = auth.userId, family.familyId == nil {
+                _ = try? await family.createFamily(uid: uid)
+            }
         }
     }
 
-    private var partnerContent: some View {
+    private func partnerContent(code: String) -> some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Your family code".uppercased())
@@ -629,7 +669,7 @@ private struct PartnerSubView: View {
 
                 HStack(spacing: 12) {
                     HStack(spacing: 6) {
-                        ForEach(Array(familyCode.enumerated()), id: \.offset) { _, char in
+                        ForEach(Array(code.enumerated()), id: \.offset) { _, char in
                             Text(String(char))
                                 .font(.nSans(22, weight: .bold))
                                 .foregroundStyle(c.leftText)
@@ -641,7 +681,7 @@ private struct PartnerSubView: View {
                     Spacer()
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        UIPasteboard.general.string = familyCode
+                        UIPasteboard.general.string = code
                         withAnimation { codeCopied = true }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             withAnimation { codeCopied = false }
@@ -667,14 +707,15 @@ private struct PartnerSubView: View {
             Divider().overlay(c.border).padding(.horizontal, 18)
 
             ShareLink(
-                item: "Join me on Nourish! Use code \(familyCode) to sync our feeds 🤱",
-                preview: SharePreview("Nourish — family code \(familyCode)")
+                item: Self.shareMessage(for: code),
+                subject: Text("Join me on Nourish"),
+                message: Text(Self.shareMessage(for: code))
             ) {
                 HStack(spacing: 14) {
                     Text("📤").font(.nSans(19))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Share your code").font(.nSans(15, weight: .semibold)).foregroundStyle(c.ink)
-                        Text("Invite your partner to join").font(.nSans(12)).foregroundStyle(c.muted)
+                        Text("WhatsApp, Messages, Email — anywhere").font(.nSans(12)).foregroundStyle(c.muted)
                     }
                     Spacer()
                     Image(systemName: "chevron.right").font(.nSans(13)).foregroundStyle(c.muted.opacity(0.45))
@@ -686,76 +727,9 @@ private struct PartnerSubView: View {
             Divider().overlay(c.border).padding(.horizontal, 18)
 
             if partnerConnected {
-                HStack(spacing: 14) {
-                    Text("✓").font(.nSans(19, weight: .bold)).foregroundStyle(c.green)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Connected with partner").font(.nSans(15, weight: .semibold)).foregroundStyle(c.ink)
-                        Text("Their sessions will be marked 'by partner'").font(.nSans(12)).foregroundStyle(c.muted)
-                    }
-                    Spacer()
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        PartnerSyncManager.shared.disconnect()
-                        partnerConnected = false
-                    } label: {
-                        Text("Disconnect")
-                            .font(.nSans(13))
-                            .foregroundStyle(c.muted)
-                            .padding(.horizontal, 12).frame(height: 32)
-                            .overlay(Capsule().stroke(c.border, lineWidth: 1))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 18).padding(.vertical, 14)
+                connectedRow
             } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Join with a code".uppercased())
-                        .font(.nSans(11, weight: .bold)).foregroundStyle(c.muted).kerning(0.09 * 11)
-                    HStack(spacing: 10) {
-                        TextField("Partner's code", text: $joinCodeInput)
-                            .textFieldStyle(.plain)
-                            .font(.nSans(17, weight: .semibold))
-                            .foregroundStyle(c.ink)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.characters)
-                            .padding(.horizontal, 14).frame(height: 44)
-                            .background(c.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(c.border, lineWidth: 1))
-                            .onChange(of: joinCodeInput) { _, v in
-                                joinCodeInput = String(v.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6))
-                            }
-                        Button {
-                            guard joinCodeInput.count == 6 else { return }
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            isJoining = true; joinError = nil
-                            Task {
-                                await PartnerSyncManager.shared.joinWithCode(joinCodeInput)
-                                if PartnerSyncManager.shared.isConnected {
-                                    partnerConnected = true; joinCodeInput = ""
-                                } else {
-                                    joinError = PartnerSyncManager.shared.errorMessage ?? "Code not found."
-                                }
-                                isJoining = false
-                            }
-                        } label: {
-                            Group {
-                                if isJoining { ProgressView().tint(.white).frame(width: 70) }
-                                else { Text("Join").font(.nSans(15, weight: .bold)).frame(width: 70) }
-                            }
-                            .foregroundStyle(.white).frame(height: 44)
-                            .background(joinCodeInput.count == 6 ? c.leftAccent : c.muted.opacity(0.3))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(ScaleButtonStyle())
-                        .disabled(joinCodeInput.count < 6 || isJoining)
-                    }
-                    if let err = joinError {
-                        Text(err).font(.nSans(12)).foregroundStyle(.red.opacity(0.8))
-                    }
-                }
-                .padding(.horizontal, 18).padding(.vertical, 14).background(c.bg)
+                joinRow
             }
         }
         .background(c.surface)
@@ -763,9 +737,110 @@ private struct PartnerSubView: View {
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(c.border, lineWidth: 1))
     }
 
-    private static func generateFamilyCode() -> String {
-        let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-        return String((0..<6).map { _ in chars.randomElement()! })
+    private var connectedRow: some View {
+        HStack(spacing: 14) {
+            Text("✓").font(.nSans(19, weight: .bold)).foregroundStyle(c.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Connected with partner")
+                    .font(.nSans(15, weight: .semibold)).foregroundStyle(c.ink)
+                Text("\(family.memberUids.count) people in this family")
+                    .font(.nSans(12)).foregroundStyle(c.muted)
+            }
+            Spacer()
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                guard let uid = auth.userId else { return }
+                isLeaving = true
+                Task {
+                    try? await family.leaveFamily(uid: uid)
+                    isLeaving = false
+                }
+            } label: {
+                Group {
+                    if isLeaving {
+                        ProgressView().tint(c.muted).frame(width: 90)
+                    } else {
+                        Text("Disconnect")
+                            .font(.nSans(13))
+                            .foregroundStyle(c.muted)
+                    }
+                }
+                .padding(.horizontal, 12).frame(height: 32)
+                .overlay(Capsule().stroke(c.border, lineWidth: 1))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isLeaving)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
+    }
+
+    private var joinRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Join your partner's family".uppercased())
+                .font(.nSans(11, weight: .bold)).foregroundStyle(c.muted).kerning(0.09 * 11)
+            Text("If your partner already has a code, paste it here. This will merge your sessions into their family.")
+                .font(.nSans(12))
+                .foregroundStyle(c.muted)
+                .lineSpacing(3)
+            HStack(spacing: 10) {
+                TextField("Partner's code", text: $joinCodeInput)
+                    .textFieldStyle(.plain)
+                    .font(.nSans(17, weight: .semibold))
+                    .foregroundStyle(c.ink)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.characters)
+                    .padding(.horizontal, 14).frame(height: 44)
+                    .background(c.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(c.border, lineWidth: 1))
+                    .onChange(of: joinCodeInput) { _, v in
+                        joinCodeInput = String(v.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6))
+                    }
+                Button {
+                    guard joinCodeInput.count == 6, let uid = auth.userId else { return }
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    isJoining = true; joinError = nil
+                    let code = joinCodeInput
+                    Task {
+                        do {
+                            try await family.joinFamily(code: code, uid: uid)
+                            joinCodeInput = ""
+                        } catch {
+                            joinError = (error as? LocalizedError)?.errorDescription
+                                ?? error.localizedDescription
+                        }
+                        isJoining = false
+                    }
+                } label: {
+                    Group {
+                        if isJoining { ProgressView().tint(.white).frame(width: 70) }
+                        else { Text("Join").font(.nSans(15, weight: .bold)).frame(width: 70) }
+                    }
+                    .foregroundStyle(.white).frame(height: 44)
+                    .background(joinCodeInput.count == 6 ? c.leftAccent : c.muted.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .disabled(joinCodeInput.count < 6 || isJoining)
+            }
+            if let err = joinError {
+                Text(err).font(.nSans(12)).foregroundStyle(.red.opacity(0.8))
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14).background(c.bg)
+    }
+
+    static func shareMessage(for code: String) -> String {
+        """
+        Join me on Nourish 🤱 — we'll both see every feed in real time.
+
+        Open Nourish, go to Settings → Partner sharing, and enter this code:
+
+        \(code)
+
+        Get the app: https://apps.apple.com/app/nourish-feed-tracker
+        """
     }
 }
 
