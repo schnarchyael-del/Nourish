@@ -18,6 +18,8 @@ struct FeedSnapshot {
     let isSessionActive: Bool
     let activeSessionStart: Date?
     let activeSessionSide: String   // "left" / "right" / ""
+    let activeSessionPausedAt: Date?
+    let activeSessionAccumulatedPause: Int
 
     static let empty = FeedSnapshot(
         lastFeedTime: nil,
@@ -33,7 +35,9 @@ struct FeedSnapshot {
         todayRightMinutes: 0,
         isSessionActive: false,
         activeSessionStart: nil,
-        activeSessionSide: ""
+        activeSessionSide: "",
+        activeSessionPausedAt: nil,
+        activeSessionAccumulatedPause: 0
     )
 
     static let placeholder = FeedSnapshot(
@@ -50,7 +54,9 @@ struct FeedSnapshot {
         todayRightMinutes: 40,
         isSessionActive: false,
         activeSessionStart: nil,
-        activeSessionSide: ""
+        activeSessionSide: "",
+        activeSessionPausedAt: nil,
+        activeSessionAccumulatedPause: 0
     )
 
     static let placeholderActive = FeedSnapshot(
@@ -67,7 +73,9 @@ struct FeedSnapshot {
         todayRightMinutes: 40,
         isSessionActive: true,
         activeSessionStart: Date.now.addingTimeInterval(-3 * 60 - 42),
-        activeSessionSide: "left"
+        activeSessionSide: "left",
+        activeSessionPausedAt: nil,
+        activeSessionAccumulatedPause: 0
     )
 
     var hasData: Bool { lastFeedTime != nil }
@@ -82,6 +90,21 @@ struct FeedSnapshot {
         guard isSessionActive, let start = activeSessionStart else { return false }
         // 6-hour ceiling — no real feeding session lasts that long.
         return Date.now.timeIntervalSince(start) < 6 * 3600
+    }
+
+    var isActivePaused: Bool { activeSessionPausedAt != nil }
+
+    /// Start date shifted forward by the time already spent paused, so
+    /// `Text(_, style: .timer)` shows only the time actually spent feeding.
+    var effectiveActiveStart: Date? {
+        guard let start = activeSessionStart else { return nil }
+        return start.addingTimeInterval(TimeInterval(activeSessionAccumulatedPause))
+    }
+
+    /// Frozen elapsed seconds at the moment the session was paused.
+    var pausedElapsedSeconds: Int {
+        guard let start = activeSessionStart, let pausedAt = activeSessionPausedAt else { return 0 }
+        return max(0, Int(pausedAt.timeIntervalSince(start)) - activeSessionAccumulatedPause)
     }
 }
 
@@ -102,6 +125,8 @@ enum SharedKey {
     static let isSessionActive       = "widget.isSessionActive"
     static let activeSessionStart    = "widget.activeSessionStart"
     static let activeSessionSide     = "widget.activeSessionSide"
+    static let activePausedAt        = "widget.activeSessionPausedAt"
+    static let activeAccumulatedPause = "widget.activeSessionAccumulatedPause"
 }
 
 extension FeedSnapshot {
@@ -115,6 +140,11 @@ extension FeedSnapshot {
 
         let activeStart = (d.object(forKey: SharedKey.activeSessionStart) as? Double)
             .map { Date(timeIntervalSince1970: $0) }
+
+        let pausedAtTs = d.double(forKey: SharedKey.activePausedAt)
+        let pausedAt: Date? = pausedAtTs > 0
+            ? Date(timeIntervalSince1970: pausedAtTs)
+            : nil
 
         return FeedSnapshot(
             lastFeedTime: lastFeedTime,
@@ -130,7 +160,9 @@ extension FeedSnapshot {
             todayRightMinutes: d.integer(forKey: SharedKey.todayRightMinutes),
             isSessionActive: d.bool(forKey: SharedKey.isSessionActive),
             activeSessionStart: activeStart,
-            activeSessionSide: d.string(forKey: SharedKey.activeSessionSide) ?? ""
+            activeSessionSide: d.string(forKey: SharedKey.activeSessionSide) ?? "",
+            activeSessionPausedAt: pausedAt,
+            activeSessionAccumulatedPause: d.integer(forKey: SharedKey.activeAccumulatedPause)
         )
     }
 }
@@ -168,6 +200,18 @@ enum FeedFormat {
         let hours = mins / 60
         if hours < 24 { return "\(hours)h" }
         return "\(hours / 24)d"
+    }
+
+    /// Static "M:SS" / "H:MM:SS" string, matching SwiftUI's `.timer` style
+    /// so the paused readout reads identically to the live one.
+    static func elapsedTimer(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        let h = s / 3600
+        let m = (s % 3600) / 60
+        let sec = s % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, sec)
+            : String(format: "%d:%02d", m, sec)
     }
 
     /// "12 min" / "1h 5m"

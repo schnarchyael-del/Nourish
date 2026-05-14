@@ -83,6 +83,7 @@ final class SessionStore {
         pauseStartDate = .now
         stopTimer()
         persist()
+        publishActiveSnapshot()
     }
 
     func resume() {
@@ -94,6 +95,7 @@ final class SessionStore {
         isPaused = false
         persist()
         startTimer()
+        publishActiveSnapshot()
     }
 
     func switchSide() {
@@ -274,9 +276,21 @@ final class SessionStore {
 
         // Recovered an in-progress session — re-enable the keep-awake flag and
         // republish the active state so widgets reflect it.
-        if let start = sessionStartDate {
-            SharedFeedSnapshot.setActiveSession(side: stSide.rawValue, start: start)
+        if sessionStartDate != nil {
+            publishActiveSnapshot()
             UIApplication.shared.isIdleTimerDisabled = true
         }
+    }
+
+    /// Push the current active-session state (including pause) to the widget
+    /// snapshot. Caller must ensure a session is active.
+    private func publishActiveSnapshot() {
+        guard let start = sessionStartDate, let side = startSide else { return }
+        SharedFeedSnapshot.setActiveSession(
+            side: side.rawValue,
+            start: start,
+            pausedAt: pauseStartDate,
+            accumulatedPausedSeconds: accumulatedPausedSeconds
+        )
     }
 }

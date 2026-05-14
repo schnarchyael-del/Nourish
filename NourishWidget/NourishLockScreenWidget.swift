@@ -40,19 +40,25 @@ private struct CircularLockView: View {
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
-            if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
+            if snapshot.isActuallyActive {
                 VStack(spacing: 0) {
                     HStack(spacing: 2) {
                         Circle().frame(width: 5, height: 5)
                         Text(FeedFormat.sideLetter(from: snapshot.activeSessionSide))
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                     }
-                    Text(start, style: .timer)
-                        .font(.system(size: 9, weight: .semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
+                    Group {
+                        if snapshot.isActivePaused {
+                            Text(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))
+                        } else if let effective = snapshot.effectiveActiveStart {
+                            Text(effective, style: .timer)
+                        }
+                    }
+                    .font(.system(size: 9, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if snapshot.lastFeedTime != nil {
@@ -85,16 +91,21 @@ private struct RectangularLockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
+            if snapshot.isActuallyActive {
                 HStack(spacing: 4) {
                     Circle().frame(width: 6, height: 6)
-                    Text("Nourish · Feeding now")
+                    Text(snapshot.isActivePaused ? "Nourish · Paused" : "Nourish · Feeding now")
                         .font(.system(size: 11, weight: .bold))
                 }
-                Text("\(FeedFormat.sideLetter(from: snapshot.activeSessionSide))  ")
-                    .font(.system(size: 14, weight: .semibold))
-                + Text(start, style: .timer)
-                    .font(.system(size: 14, weight: .semibold))
+                if snapshot.isActivePaused {
+                    Text("\(FeedFormat.sideLetter(from: snapshot.activeSessionSide))  \(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))")
+                        .font(.system(size: 14, weight: .semibold))
+                } else if let effective = snapshot.effectiveActiveStart {
+                    Text("\(FeedFormat.sideLetter(from: snapshot.activeSessionSide))  ")
+                        .font(.system(size: 14, weight: .semibold))
+                    + Text(effective, style: .timer)
+                        .font(.system(size: 14, weight: .semibold))
+                }
             } else {
                 Text("Nourish · Last feed")
                     .font(.system(size: 11, weight: .bold))
@@ -136,9 +147,13 @@ private struct InlineLockView: View {
     let now: Date
 
     var body: some View {
-        if snapshot.isActuallyActive, let start = snapshot.activeSessionStart {
-            Text("Nourish · Feeding \(FeedFormat.sideLetter(from: snapshot.activeSessionSide)) · ")
-            + Text(start, style: .timer)
+        if snapshot.isActuallyActive {
+            if snapshot.isActivePaused {
+                Text("Nourish · Paused \(FeedFormat.sideLetter(from: snapshot.activeSessionSide)) · \(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))")
+            } else if let effective = snapshot.effectiveActiveStart {
+                Text("Nourish · Feeding \(FeedFormat.sideLetter(from: snapshot.activeSessionSide)) · ")
+                + Text(effective, style: .timer)
+            }
         } else if snapshot.lastFeedTime != nil {
             Text("Nourish · \(FeedFormat.sideLetter(from: snapshot.lastFeedSide)) · \(FeedFormat.timeAgo(from: snapshot.lastFeedTime, reference: now))")
         } else {

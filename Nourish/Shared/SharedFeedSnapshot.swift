@@ -26,14 +26,24 @@ enum SharedFeedSnapshot {
         static let isSessionActive       = "widget.isSessionActive"
         static let activeSessionStart    = "widget.activeSessionStart"
         static let activeSessionSide     = "widget.activeSessionSide"
+        static let activePausedAt        = "widget.activeSessionPausedAt"      // 0 = not paused
+        static let activeAccumulatedPause = "widget.activeSessionAccumulatedPause"
     }
 
     /// Mark a session as active in the shared snapshot and reload widgets.
-    static func setActiveSession(side: String, start: Date) {
+    /// Pause state is included so the widget can freeze its live timer.
+    static func setActiveSession(
+        side: String,
+        start: Date,
+        pausedAt: Date? = nil,
+        accumulatedPausedSeconds: Int = 0
+    ) {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
         defaults.set(true, forKey: Key.isSessionActive)
         defaults.set(side, forKey: Key.activeSessionSide)
         defaults.set(start.timeIntervalSince1970, forKey: Key.activeSessionStart)
+        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0, forKey: Key.activePausedAt)
+        defaults.set(accumulatedPausedSeconds, forKey: Key.activeAccumulatedPause)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -43,6 +53,8 @@ enum SharedFeedSnapshot {
         defaults.set(false, forKey: Key.isSessionActive)
         defaults.removeObject(forKey: Key.activeSessionStart)
         defaults.removeObject(forKey: Key.activeSessionSide)
+        defaults.removeObject(forKey: Key.activePausedAt)
+        defaults.removeObject(forKey: Key.activeAccumulatedPause)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -111,6 +123,7 @@ enum SharedFeedSnapshot {
             Key.lastFeedBottleMl, Key.todaySessionCount, Key.todayTotalMinutes,
             Key.todayLeftMinutes, Key.todayRightMinutes,
             Key.isSessionActive, Key.activeSessionStart, Key.activeSessionSide,
+            Key.activePausedAt, Key.activeAccumulatedPause,
         ] {
             defaults.removeObject(forKey: key)
         }

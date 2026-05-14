@@ -145,11 +145,17 @@ private struct ActiveSmallHomeView: View {
             HStack(spacing: 10) {
                 SideBadge(side: snapshot.activeSessionSide, size: 36)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Feeding")
+                    Text(snapshot.isActivePaused ? "Paused" : "Feeding")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(NourishWidgetColor.muted)
-                    if let start = snapshot.activeSessionStart {
-                        Text(start, style: .timer)
+                    if snapshot.isActivePaused {
+                        Text(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))
+                            .font(.system(size: 18, weight: .bold, design: .serif))
+                            .foregroundStyle(NourishWidgetColor.ink)
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                    } else if let effective = snapshot.effectiveActiveStart {
+                        Text(effective, style: .timer)
                             .font(.system(size: 18, weight: .bold, design: .serif))
                             .foregroundStyle(NourishWidgetColor.ink)
                             .minimumScaleFactor(0.7)
@@ -166,11 +172,11 @@ private struct ActiveSmallHomeView: View {
 
             HStack(spacing: 4) {
                 Circle()
-                    .fill(NourishWidgetColor.leftFg)
+                    .fill(snapshot.isActivePaused ? NourishWidgetColor.muted : NourishWidgetColor.leftFg)
                     .frame(width: 6, height: 6)
-                Text("Live")
+                Text(snapshot.isActivePaused ? "Paused" : "Live")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(NourishWidgetColor.leftFg)
+                    .foregroundStyle(snapshot.isActivePaused ? NourishWidgetColor.muted : NourishWidgetColor.leftFg)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
