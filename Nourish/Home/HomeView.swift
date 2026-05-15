@@ -110,6 +110,7 @@ struct HomeView: View {
                     .font(.nSerif(26))
                     .foregroundStyle(c.ink)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -181,23 +182,30 @@ struct HomeView: View {
                         Text("Bottle · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     } else {
                         Text("Started \(s.feedType.displayName) · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
 
                     if s.feedType != .bottle {
                         Text("\(s.totalActiveMinutes) min total")
                             .font(.nSans(13))
                             .foregroundStyle(c.muted)
+                            .lineLimit(1)
                     } else if let ml = s.bottleAmountMl {
                         Text("\(ml) ml · \(s.bottleContentType?.displayName ?? "")")
                             .font(.nSans(13))
                             .foregroundStyle(c.muted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 8)
 
                 if s.feedType != .bottle {
                     NourishPill(

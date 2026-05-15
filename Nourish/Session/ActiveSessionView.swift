@@ -277,6 +277,8 @@ struct ActiveSessionView: View {
             // Big counter — current-side time after a switch, total before.
             Text(store.formattedCurrentSideTime)
                 .font(.nSerif(92))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
                 .foregroundStyle(timerColor)
                 .opacity(store.isPaused ? 0.42 : 1.0)
                 .shadow(
