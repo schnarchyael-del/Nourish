@@ -26,7 +26,6 @@ struct ActiveSessionView: View {
     @State private var capturedFeedType:     FeedType = .left
     @State private var capturedSide:         FeedSide = .left
     @State private var capturedElapsed:      Int      = 0
-    @State private var capturedSwitchedAt:   Int?     = nil
 
     private var encouragements: [String] {
         let pronoun:    String
@@ -142,18 +141,25 @@ struct ActiveSessionView: View {
                 tooltips.show(.switchSide)
             }
         }
-        .onChange(of: store.elapsedSeconds) { _, newValue in
+        .onChange(of: store.currentSideSeconds) { _, sideSeconds in
+            // Fire when the *current* side has been actively feeding for
+            // alarmMinutes. Paused time and prior-side time are excluded —
+            // currentSideSeconds already accounts for both.
             guard alarmEnabled, !alarmFired, !showAlarmModal else { return }
-            if newValue >= alarmMinutes * 60 {
+            if sideSeconds >= alarmMinutes * 60 {
                 alarmFired = true
-                capturedStartTime  = Date.now.addingTimeInterval(-TimeInterval(newValue))
+                let total = store.elapsedSeconds
+                capturedStartTime  = Date.now.addingTimeInterval(-TimeInterval(total))
                 capturedFeedType   = (store.startSide ?? .left).feedType
                 capturedSide       = store.startSide ?? .left
-                capturedElapsed    = newValue
-                capturedSwitchedAt = store.switchedAtSeconds
+                capturedElapsed    = total
                 fireAlarmHapticAndSound()
                 withAnimation(.easeInOut(duration: 0.3)) { showAlarmModal = true }
             }
+        }
+        .onChange(of: store.currentSide) { _, _ in
+            // Side switched — re-arm so the new side gets its own X-min window.
+            alarmFired = false
         }
         .overlay {
             if showAlarmModal {
@@ -164,12 +170,10 @@ struct ActiveSessionView: View {
                     onSave: { endTime in
                         let startTime  = capturedStartTime
                         let feedType   = capturedFeedType
-                        let totalSeconds = max(0, Int(endTime.timeIntervalSince(startTime)))
-                        let split = SessionStore.splitMinutes(
-                            startSide: capturedSide,
-                            switchedAtSeconds: capturedSwitchedAt,
-                            totalSeconds: totalSeconds
-                        )
+                        // Use the store's running per-side accumulators so
+                        // multi-switch sessions save correct L/R minutes
+                        // (the old splitMinutes only handled a single switch).
+                        let split = store.currentSplitMinutes()
                         store.cancel()
                         let session = FeedingSession(
                             startTime: startTime,
@@ -256,11 +260,13 @@ struct ActiveSessionView: View {
                 .kerning(0.18 * 11)
                 .textCase(.uppercase)
 
-            // Completed-side line (only after a switch)
+            // Completed-side line (only after at least one switch). Always
+            // names the side that is NOT currently active, so it stays
+            // accurate even after switching back (L→R→L shows "R: …").
             if let completed = store.formattedCompletedSideTime,
-               let startSide = store.startSide {
+               let otherSide = store.completedSideLabel {
                 HStack(spacing: 6) {
-                    Text("\(startSide.name):")
+                    Text("\(otherSide.name):")
                         .font(.nSans(13))
                         .foregroundStyle(labelColor)
                     Text(completed)
@@ -268,7 +274,7 @@ struct ActiveSessionView: View {
                         .foregroundStyle(
                             darkMode
                                 ? .white.opacity(0.55)
-                                : c.accentColor(for: startSide)
+                                : c.accentColor(for: otherSide)
                         )
                         .contentTransition(.numericText())
                 }

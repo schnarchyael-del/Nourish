@@ -8,7 +8,23 @@ final class SessionStore {
     var startSide: FeedSide? = nil
     var elapsedSeconds: Int = 0
     var isPaused: Bool = false
+    /// Elapsed seconds at the FIRST switch, or nil if no switch has happened.
+    /// Used only as a "has the user switched at least once?" flag for UI
+    /// affordances. Per-side totals come from `leftActiveSeconds` /
+    /// `rightActiveSeconds`, which accumulate across every switch.
     var switchedAtSeconds: Int? = nil
+
+    /// Total active feeding seconds on the LEFT side, accumulated across
+    /// every segment of the current session. Paused time is excluded
+    /// because we tick `elapsedSeconds` from wall clock minus paused.
+    private(set) var leftActiveSeconds: Int = 0
+    /// Total active feeding seconds on the RIGHT side, accumulated across
+    /// every segment of the current session.
+    private(set) var rightActiveSeconds: Int = 0
+    /// `elapsedSeconds` at the moment the current segment started (i.e. at
+    /// session start or at the most recent switchSide). The current
+    /// segment's runtime is `elapsedSeconds - currentSideStartedAtElapsed`.
+    private var currentSideStartedAtElapsed: Int = 0
 
     private var timer: Timer? = nil
     private var sessionStartDate: Date? = nil
@@ -17,12 +33,15 @@ final class SessionStore {
 
     // UserDefaults keys for session recovery across kills / backgrounding
     private enum PKey {
-        static let startTimestamp   = "session_startTimestamp"
-        static let currentSide      = "session_currentSide"
-        static let startSide        = "session_startSide"
-        static let switchedAt       = "session_switchedAt"       // -1 encodes nil
-        static let pausedTimestamp  = "session_pausedTimestamp"  // 0  encodes nil
-        static let accumulatedPause = "session_accumulatedPause"
+        static let startTimestamp     = "session_startTimestamp"
+        static let currentSide        = "session_currentSide"
+        static let startSide          = "session_startSide"
+        static let switchedAt         = "session_switchedAt"       // -1 encodes nil
+        static let pausedTimestamp    = "session_pausedTimestamp"  // 0  encodes nil
+        static let accumulatedPause   = "session_accumulatedPause"
+        static let leftActiveSeconds  = "session_leftActiveSeconds"
+        static let rightActiveSeconds = "session_rightActiveSeconds"
+        static let currentSideStart   = "session_currentSideStartedAtElapsed"
     }
 
     var isActive: Bool { currentSide != nil }
@@ -58,6 +77,9 @@ final class SessionStore {
         sessionStartDate = .now
         pauseStartDate = nil
         accumulatedPausedSeconds = 0
+        leftActiveSeconds = 0
+        rightActiveSeconds = 0
+        currentSideStartedAtElapsed = 0
         persist()
         startTimer()
 
@@ -66,11 +88,8 @@ final class SessionStore {
         NotificationManager.shared.cancelReminder()
 
         // Schedule a background notification mirroring the in-app alarm.
-        let alarmEnabled = (UserDefaults.standard.object(forKey: "alarmEnabled") as? Bool) ?? true
-        let alarmMinutes = (UserDefaults.standard.object(forKey: "alarmMinutes") as? Int) ?? 45
-        if alarmEnabled, alarmMinutes > 0 {
-            NotificationManager.shared.scheduleSessionAlarm(seconds: TimeInterval(alarmMinutes * 60))
-        }
+        // Threshold is per-side, so we re-evaluate on switch/pause/resume below.
+        rescheduleSessionAlarmForCurrentSide()
 
         // Push live state to widgets and keep the screen awake.
         SharedFeedSnapshot.setActiveSession(side: side.rawValue, start: sessionStartDate ?? .now)
@@ -84,6 +103,9 @@ final class SessionStore {
         stopTimer()
         persist()
         publishActiveSnapshot()
+        // Cancel the background alarm; resume() will reschedule with the
+        // remaining current-side time.
+        NotificationManager.shared.cancelSessionAlarm()
     }
 
     func resume() {
@@ -96,15 +118,49 @@ final class SessionStore {
         persist()
         startTimer()
         publishActiveSnapshot()
+        rescheduleSessionAlarmForCurrentSide()
     }
 
     func switchSide() {
         guard let side = currentSide else { return }
+        // Commit the current segment's time to the accumulator for whatever
+        // side we're leaving, BEFORE we flip currentSide.
+        commitCurrentSegment()
         if switchedAtSeconds == nil {
             switchedAtSeconds = elapsedSeconds
         }
         currentSide = side.opposite
         if isPaused { resume() } else { persist() }
+        // New side starts at 0 — give it a fresh `alarmMinutes` window.
+        rescheduleSessionAlarmForCurrentSide()
+    }
+
+    /// Add the time spent on `currentSide` since the segment started to the
+    /// appropriate per-side accumulator, then reset the segment marker. Call
+    /// this before flipping sides or ending the session.
+    private func commitCurrentSegment() {
+        guard let side = currentSide else { return }
+        let segment = max(0, elapsedSeconds - currentSideStartedAtElapsed)
+        if side == .left {
+            leftActiveSeconds += segment
+        } else {
+            rightActiveSeconds += segment
+        }
+        currentSideStartedAtElapsed = elapsedSeconds
+    }
+
+    /// Schedule the background session alarm so it fires when the CURRENT
+    /// side reaches `alarmMinutes`. No-op when not active, paused, or alarm
+    /// disabled. Cancels any previously-scheduled alarm.
+    private func rescheduleSessionAlarmForCurrentSide() {
+        NotificationManager.shared.cancelSessionAlarm()
+        guard isActive, !isPaused else { return }
+        let alarmEnabled = (UserDefaults.standard.object(forKey: "alarmEnabled") as? Bool) ?? true
+        let alarmMinutes = (UserDefaults.standard.object(forKey: "alarmMinutes") as? Int) ?? 45
+        guard alarmEnabled, alarmMinutes > 0 else { return }
+        let remaining = (alarmMinutes * 60) - currentSideSeconds
+        guard remaining > 0 else { return }
+        NotificationManager.shared.scheduleSessionAlarm(seconds: TimeInterval(remaining))
     }
 
     /// Recalculate elapsed time from wall clock. Safe to call any time.
@@ -116,41 +172,35 @@ final class SessionStore {
 
     func end() -> (startTime: Date, feedType: FeedType, endTime: Date, leftMins: Int, rightMins: Int) {
         stopTimer()
+        // Roll the final active segment into the per-side accumulator before
+        // we read them out.
+        commitCurrentSegment()
         let endTime = Date.now
         let startTime = sessionStartDate ?? endTime.addingTimeInterval(-TimeInterval(elapsedSeconds))
         let start = startSide ?? .left
-        let split = Self.splitMinutes(startSide: start,
-                                      switchedAtSeconds: switchedAtSeconds,
-                                      totalSeconds: elapsedSeconds)
+        let leftMins  = leftActiveSeconds  / 60
+        let rightMins = rightActiveSeconds / 60
         clearPersisted()
         reset()
         NotificationManager.shared.cancelSessionAlarm()
         SharedFeedSnapshot.clearActiveSession()
         UIApplication.shared.isIdleTimerDisabled = false
-        return (startTime, start.feedType, endTime, split.left, split.right)
+        return (startTime, start.feedType, endTime, leftMins, rightMins)
     }
 
-    /// Splits a session's total elapsed seconds into left/right minutes based on
-    /// when (if ever) the user switched sides.
-    static func splitMinutes(startSide: FeedSide,
-                             switchedAtSeconds: Int?,
-                             totalSeconds: Int) -> (left: Int, right: Int) {
-        let total = max(0, totalSeconds)
-        let startSeconds: Int
-        let oppositeSeconds: Int
-        if let switchAt = switchedAtSeconds {
-            let clamped = min(max(0, switchAt), total)
-            startSeconds = clamped
-            oppositeSeconds = total - clamped
-        } else {
-            startSeconds = total
-            oppositeSeconds = 0
+    /// Convert in-flight per-side seconds to (leftMins, rightMins) without
+    /// mutating session state. Useful when the alarm modal needs to save a
+    /// session that's still active (so we can't call `end()` first).
+    func currentSplitMinutes() -> (left: Int, right: Int) {
+        let inFlight = max(0, elapsedSeconds - currentSideStartedAtElapsed)
+        var left  = leftActiveSeconds
+        var right = rightActiveSeconds
+        if currentSide == .left {
+            left += inFlight
+        } else if currentSide == .right {
+            right += inFlight
         }
-        let startMins = startSeconds / 60
-        let oppositeMins = oppositeSeconds / 60
-        return startSide == .left
-            ? (left: startMins, right: oppositeMins)
-            : (left: oppositeMins, right: startMins)
+        return (left: left / 60, right: right / 60)
     }
 
     func cancel() {
@@ -166,15 +216,28 @@ final class SessionStore {
         Self.formatMMSS(elapsedSeconds)
     }
 
-    /// Seconds spent on the current side. Equals total elapsed when no switch yet.
+    /// Seconds spent on the current side in the CURRENT segment — resets to
+    /// 0 every time the user switches sides. Equals total elapsed when no
+    /// switch has happened yet.
     var currentSideSeconds: Int {
-        guard let switched = switchedAtSeconds else { return elapsedSeconds }
-        return max(0, elapsedSeconds - switched)
+        max(0, elapsedSeconds - currentSideStartedAtElapsed)
     }
 
-    /// Seconds completed on the previous side, or nil if user hasn't switched.
+    /// Accumulated total seconds on the side the user is NOT currently on,
+    /// or nil if no switch has happened yet. After multiple switches this
+    /// stays accurate (e.g. L→R→L → reports R's full total).
     var completedSideSeconds: Int? {
-        switchedAtSeconds
+        guard switchedAtSeconds != nil, let cur = currentSide else { return nil }
+        return cur == .left ? rightActiveSeconds : leftActiveSeconds
+    }
+
+    /// The side `completedSideSeconds` refers to (i.e. the opposite of the
+    /// currently-active side, only when a switch has happened). Used by the
+    /// UI so the small "L: 8:00" line above the big timer always names the
+    /// side that's NOT actively ticking.
+    var completedSideLabel: FeedSide? {
+        guard switchedAtSeconds != nil, let cur = currentSide else { return nil }
+        return cur.opposite
     }
 
     var formattedCurrentSideTime: String { Self.formatMMSS(currentSideSeconds) }
@@ -214,6 +277,9 @@ final class SessionStore {
         sessionStartDate = nil
         pauseStartDate = nil
         accumulatedPausedSeconds = 0
+        leftActiveSeconds = 0
+        rightActiveSeconds = 0
+        currentSideStartedAtElapsed = 0
     }
 
     // MARK: Persistence
@@ -232,12 +298,16 @@ final class SessionStore {
         d.set(accumulatedPausedSeconds,                             forKey: PKey.accumulatedPause)
         d.set(switchedAtSeconds ?? -1,                              forKey: PKey.switchedAt)
         d.set(pauseStartDate?.timeIntervalSince1970 ?? 0,           forKey: PKey.pausedTimestamp)
+        d.set(leftActiveSeconds,                                    forKey: PKey.leftActiveSeconds)
+        d.set(rightActiveSeconds,                                   forKey: PKey.rightActiveSeconds)
+        d.set(currentSideStartedAtElapsed,                          forKey: PKey.currentSideStart)
     }
 
     private func clearPersisted() {
         let d = UserDefaults.standard
         for key in [PKey.startTimestamp, PKey.currentSide, PKey.startSide,
-                    PKey.switchedAt, PKey.pausedTimestamp, PKey.accumulatedPause] {
+                    PKey.switchedAt, PKey.pausedTimestamp, PKey.accumulatedPause,
+                    PKey.leftActiveSeconds, PKey.rightActiveSeconds, PKey.currentSideStart] {
             d.removeObject(forKey: key)
         }
     }
@@ -261,6 +331,9 @@ final class SessionStore {
         currentSide              = curSide
         startSide                = stSide
         accumulatedPausedSeconds = d.integer(forKey: PKey.accumulatedPause)
+        leftActiveSeconds        = d.integer(forKey: PKey.leftActiveSeconds)
+        rightActiveSeconds       = d.integer(forKey: PKey.rightActiveSeconds)
+        currentSideStartedAtElapsed = d.integer(forKey: PKey.currentSideStart)
 
         let switchedRaw = d.integer(forKey: PKey.switchedAt)
         switchedAtSeconds = switchedRaw >= 0 ? switchedRaw : nil
@@ -274,10 +347,12 @@ final class SessionStore {
         syncToWallClock()
         if !isPaused { startTimer() }
 
-        // Recovered an in-progress session — re-enable the keep-awake flag and
-        // republish the active state so widgets reflect it.
+        // Recovered an in-progress session — re-enable the keep-awake flag,
+        // republish the active state, and reschedule the per-side alarm
+        // based on how long the current side has already been running.
         if sessionStartDate != nil {
             publishActiveSnapshot()
+            rescheduleSessionAlarmForCurrentSide()
             UIApplication.shared.isIdleTimerDisabled = true
         }
     }
