@@ -178,7 +178,6 @@ struct StatsView: View {
                         .padding(.bottom, 16)
                     }
                 }
-                .simultaneousGesture(swipeToNavigate)
             }
         }
         .background(c.bg)
@@ -346,24 +345,6 @@ struct StatsView: View {
         }
         .scrollClipDisabled()
         .padding(.bottom, 14)
-    }
-
-    /// Horizontal swipe on the stats content navigates to the prev/next
-    /// period. Drag right → backward in time, drag left → forward. The
-    /// vertical-dominance guard prevents scroll-up/down gestures from
-    /// triggering navigation.
-    private var swipeToNavigate: some Gesture {
-        DragGesture(minimumDistance: 24)
-            .onEnded { value in
-                let dx = value.translation.width
-                let dy = value.translation.height
-                guard abs(dx) > 60, abs(dx) > abs(dy) * 1.5 else { return }
-                if dx > 0 {
-                    stepAnchor(by: -1)
-                } else if canGoForward {
-                    stepAnchor(by: 1)
-                }
-            }
     }
 
     private var periodNoun: String {
