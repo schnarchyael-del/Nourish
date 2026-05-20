@@ -8,6 +8,7 @@ struct HomeView: View {
 
     let store: SessionStore
     let onLog: () -> Void
+    let onPump: () -> Void
 
     @Query(sort: \FeedingSession.startTime, order: SortOrder.reverse) private var sessions: [FeedingSession]
 
@@ -37,6 +38,7 @@ struct HomeView: View {
                 lastSessionCard
                 breastButtons
                 bottleButton
+                pumpButton
                 logPastButton
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -86,6 +88,10 @@ struct HomeView: View {
         }
         if !tooltips.hasSeen(.settings) {
             tooltips.show(.settings)
+            return
+        }
+        if !tooltips.hasSeen(.pumpButton), tooltips.hasSeen(.settings) {
+            tooltips.show(.pumpButton)
             return
         }
         if !sessions.isEmpty,
@@ -178,13 +184,20 @@ struct HomeView: View {
 
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 3) {
-                    if s.feedType == .bottle {
+                    switch s.feedType {
+                    case .bottle:
                         Text("Bottle · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                    } else {
+                    case .pump:
+                        Text("Pump · \(timeAgo(from: s.startTime, now: now))")
+                            .font(.nSans(17, weight: .bold))
+                            .foregroundStyle(c.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    default:
                         Text("Started \(s.feedType.displayName) · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
@@ -192,7 +205,19 @@ struct HomeView: View {
                             .minimumScaleFactor(0.7)
                     }
 
-                    if s.feedType != .bottle {
+                    if s.feedType == .pump {
+                        HStack(spacing: 4) {
+                            Text("\(s.totalActiveMinutes) min")
+                                .font(.nSans(13))
+                                .foregroundStyle(c.muted)
+                            if let vol = s.pumpVolumeMl {
+                                Text("· \(vol) ml")
+                                    .font(.nSans(13))
+                                    .foregroundStyle(c.muted)
+                            }
+                        }
+                        .lineLimit(1)
+                    } else if s.feedType != .bottle {
                         Text("\(s.totalActiveMinutes) min total")
                             .font(.nSans(13))
                             .foregroundStyle(c.muted)
@@ -207,7 +232,8 @@ struct HomeView: View {
                 }
                 Spacer(minLength: 8)
 
-                if s.feedType != .bottle {
+                switch s.feedType {
+                case .left, .right:
                     NourishPill(
                         label: s.feedType.shortLabel,
                         fill: s.feedType == .left ? c.leftBg : c.rightBg,
@@ -216,8 +242,12 @@ struct HomeView: View {
                             : c.rightAccent.opacity(0.2),
                         color: s.feedType == .left ? c.leftText : c.rightText
                     )
-                } else {
+                case .bottle:
                     Text("🍼").font(.nSans(22))
+                case .pump:
+                    Image(systemName: "drop.fill")
+                        .font(.nSans(20))
+                        .foregroundStyle(c.pumpAccent)
                 }
             }
         }
@@ -340,6 +370,31 @@ struct HomeView: View {
         .buttonStyle(ScaleButtonStyle())
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
+    }
+
+    private var pumpButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onPump()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "drop.fill")
+                    .font(.nSans(17))
+                    .foregroundStyle(c.pumpAccent)
+                Text("Pump session")
+                    .font(.nSans(15, weight: .semibold))
+                    .foregroundStyle(c.pumpAccent)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(c.pumpBg)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.pumpBorder, lineWidth: 1.5))
+        }
+        .buttonStyle(ScaleButtonStyle())
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
+        .tooltipTarget(.pumpButton)
     }
 
     private var logPastButton: some View {

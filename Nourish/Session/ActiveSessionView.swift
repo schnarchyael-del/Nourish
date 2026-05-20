@@ -20,6 +20,7 @@ struct ActiveSessionView: View {
     @State private var alarmFired    = false
     @State private var showDiscardConfirm = false
     @State private var didEvaluateTooltips = false
+    @State private var notes: String = ""
 
     // Captured at alarm-fire time so save closure has stable values
     @State private var capturedStartTime:    Date     = .now
@@ -125,6 +126,8 @@ struct ActiveSessionView: View {
                 topBar
                 timerHero
                 if showEncouragements { encouragementCard }
+                notesField
+                    .padding(.bottom, 10)
                 Spacer()
                 actionButtons
             }
@@ -170,6 +173,7 @@ struct ActiveSessionView: View {
                     onSave: { endTime in
                         let startTime  = capturedStartTime
                         let feedType   = capturedFeedType
+                        let savedNotes = notes
                         // Use the store's running per-side accumulators so
                         // multi-switch sessions save correct L/R minutes
                         // (the old splitMinutes only handled a single switch).
@@ -180,7 +184,8 @@ struct ActiveSessionView: View {
                             feedType: feedType,
                             endTime: endTime,
                             leftDurationMins: split.left,
-                            rightDurationMins: split.right
+                            rightDurationMins: split.right,
+                            notes: savedNotes.isEmpty ? nil : savedNotes
                         )
                         modelContext.insert(session)
                         try? modelContext.save()
@@ -420,6 +425,27 @@ struct ActiveSessionView: View {
         }
     }
 
+    // MARK: Notes
+
+    private var notesField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "note.text")
+                .font(.nSans(14))
+                .foregroundStyle(labelColor)
+
+            TextField("Add a note...", text: $notes)
+                .font(.nSans(14))
+                .foregroundStyle(textColor)
+                .tint(timerColor)
+                .submitLabel(.done)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(ghostBg)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(ghostBorder, lineWidth: 1))
+    }
+
     // MARK: Alarm sound + haptic
 
     private func fireAlarmHapticAndSound() {
@@ -439,7 +465,8 @@ struct ActiveSessionView: View {
             feedType: result.feedType,
             endTime: result.endTime,
             leftDurationMins: result.leftMins,
-            rightDurationMins: result.rightMins
+            rightDurationMins: result.rightMins,
+            notes: notes.isEmpty ? nil : notes
         )
         modelContext.insert(session)
         try? modelContext.save()

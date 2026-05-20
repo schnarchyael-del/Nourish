@@ -5,12 +5,14 @@ enum FeedType: String, Codable, CaseIterable {
     case left    = "left"
     case right   = "right"
     case bottle  = "bottle"
+    case pump    = "pump"
 
     var displayName: String {
         switch self {
         case .left:   "Left"
         case .right:  "Right"
         case .bottle: "Bottle"
+        case .pump:   "Pump"
         }
     }
 
@@ -19,6 +21,37 @@ enum FeedType: String, Codable, CaseIterable {
         case .left:   "L"
         case .right:  "R"
         case .bottle: "B"
+        case .pump:   "P"
+        }
+    }
+}
+
+enum PumpSide: String, Codable, CaseIterable {
+    case left  = "left"
+    case right = "right"
+    case both  = "both"
+
+    var displayName: String {
+        switch self {
+        case .left:  "Left"
+        case .right: "Right"
+        case .both:  "Both"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .left:  "L"
+        case .right: "R"
+        case .both:  "Both"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .left:  "L"
+        case .right: "R"
+        case .both:  "⇄"
         }
     }
 }
@@ -53,6 +86,11 @@ final class FeedingSession {
     var leftDurationMins: Int?
     var rightDurationMins: Int?
     var loggedByDeviceID: String?
+    // Pump-specific fields
+    var pumpSide: PumpSide?
+    var pumpVolumeMl: Int?
+    // Universal notes field (all session types)
+    var notes: String?
 
     init(
         startTime: Date = .now,
@@ -62,7 +100,10 @@ final class FeedingSession {
         bottleAmountMl: Int? = nil,
         leftDurationMins: Int? = nil,
         rightDurationMins: Int? = nil,
-        loggedByDeviceID: String? = nil
+        loggedByDeviceID: String? = nil,
+        pumpSide: PumpSide? = nil,
+        pumpVolumeMl: Int? = nil,
+        notes: String? = nil
     ) {
         self.id = UUID()
         self.startTime = startTime
@@ -73,25 +114,27 @@ final class FeedingSession {
         self.leftDurationMins = leftDurationMins
         self.rightDurationMins = rightDurationMins
         self.loggedByDeviceID = loggedByDeviceID
+        self.pumpSide = pumpSide
+        self.pumpVolumeMl = pumpVolumeMl
+        self.notes = notes
     }
 
-    /// Wall-clock duration including pauses. Kept for legacy fallback only.
+    /// Wall-clock duration including pauses. Used for pump sessions and legacy fallback.
     var durationSeconds: Int {
         max(0, Int((endTime ?? .now).timeIntervalSince(startTime)))
     }
 
     var durationMinutes: Int { durationSeconds / 60 }
 
-    /// Active feeding time = leftDuration + rightDuration (excludes pauses/gaps).
-    /// Falls back to wall-clock for legacy sessions that don't have splits.
+    /// Active feeding time. For pump sessions uses wall-clock (left+right split not applicable).
     var totalActiveMinutes: Int {
-        leftMinutesResolved + rightMinutesResolved
+        if feedType == .pump { return durationMinutes }
+        return leftMinutesResolved + rightMinutesResolved
     }
 
     var formattedDuration: String {
         let mins = totalActiveMinutes
         if mins > 0 { return "\(mins) min" }
-        // Sessions under a minute (rare): show seconds from wall clock.
         let secs = durationSeconds
         if secs > 0 && secs < 60 { return "\(secs) sec" }
         return "0 min"
@@ -110,16 +153,14 @@ final class FeedingSession {
         return "\(mins)m ago"
     }
 
-    // Time on each side, using stored splits when available and falling back to
-    // attributing full duration to the starting side for legacy sessions.
     var leftMinutesResolved: Int {
-        if feedType == .bottle { return 0 }
+        if feedType == .bottle || feedType == .pump { return 0 }
         if let m = leftDurationMins { return m }
         return feedType == .left ? durationMinutes : 0
     }
 
     var rightMinutesResolved: Int {
-        if feedType == .bottle { return 0 }
+        if feedType == .bottle || feedType == .pump { return 0 }
         if let m = rightDurationMins { return m }
         return feedType == .right ? durationMinutes : 0
     }

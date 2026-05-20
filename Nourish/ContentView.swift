@@ -12,8 +12,10 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var systemColorScheme
 
     @State private var sessionStore  = SessionStore()
+    @State private var pumpStore     = PumpStore()
     @State private var selectedTab   = 0
     @State private var showLogScreen = false
+    @State private var showPumpScreen = false
     @StateObject private var tooltips = TooltipManager()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -38,7 +40,7 @@ struct ContentView: View {
     }
 
     private var showTabBar: Bool {
-        !sessionStore.isActive && !showLogScreen && selectedTab != 1
+        !sessionStore.isActive && !pumpStore.isActive && !showLogScreen && !showPumpScreen && selectedTab != 1
     }
 
     var body: some View {
@@ -54,16 +56,12 @@ struct ContentView: View {
         .preferredColorScheme(appTheme.preferredScheme)
         .environmentObject(tooltips)
         .tooltipOverlay(tooltips)
-        // Within-app navigation: clear the active tooltip without marking
-        // seen, so the user can encounter it again next time the target
-        // screen is shown.
-        .onChange(of: selectedTab)            { _, _ in tooltips.clearActiveWithoutMarking() }
-        .onChange(of: showLogScreen)          { _, _ in tooltips.clearActiveWithoutMarking() }
-        .onChange(of: sessionStore.isActive)  { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: selectedTab)             { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: showLogScreen)           { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: showPumpScreen)          { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: sessionStore.isActive)   { _, _ in tooltips.clearActiveWithoutMarking() }
+        .onChange(of: pumpStore.isActive)      { _, _ in tooltips.clearActiveWithoutMarking() }
         .onChange(of: scenePhase) { _, phase in
-            // Only treat real backgrounding as "navigated away". .inactive
-            // can fire transiently during launch/resume and would prematurely
-            // mark tooltips seen.
             if phase == .background {
                 tooltips.clearOnNavigateAway()
                 tooltips.resetAppLaunchGate()
@@ -78,7 +76,9 @@ struct ContentView: View {
             screenContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: sessionStore.isActive)
+                .animation(.spring(response: 0.35, dampingFraction: 0.82), value: pumpStore.isActive)
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: showLogScreen)
+                .animation(.spring(response: 0.35, dampingFraction: 0.82), value: showPumpScreen)
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: selectedTab)
 
             if showTabBar {
@@ -99,7 +99,14 @@ struct ContentView: View {
 
     @ViewBuilder
     private var screenContent: some View {
-        if showLogScreen {
+        if pumpStore.isActive || showPumpScreen {
+            PumpSessionView(
+                store: pumpStore,
+                onDismiss: { showPumpScreen = false }
+            )
+            .transition(Self.tabTransition)
+
+        } else if showLogScreen {
             LogSessionView(
                 onBack: { showLogScreen = false },
                 onSave: { showLogScreen = false }
@@ -117,8 +124,12 @@ struct ContentView: View {
         } else {
             switch selectedTab {
             case 0:
-                HomeView(store: sessionStore, onLog: { showLogScreen = true })
-                    .transition(Self.tabTransition)
+                HomeView(
+                    store: sessionStore,
+                    onLog: { showLogScreen = true },
+                    onPump: { showPumpScreen = true }
+                )
+                .transition(Self.tabTransition)
 
             case 1:
                 LogSessionView(
@@ -136,7 +147,11 @@ struct ContentView: View {
                     .transition(Self.tabTransition)
 
             default:
-                HomeView(store: sessionStore, onLog: { showLogScreen = true })
+                HomeView(
+                    store: sessionStore,
+                    onLog: { showLogScreen = true },
+                    onPump: { showPumpScreen = true }
+                )
             }
         }
     }

@@ -1032,10 +1032,19 @@ private struct DataSubView: View {
             NourishSheetHeader(title: "Data & Export", onDismiss: { dismiss() })
             ScrollView {
                 VStack(spacing: 0) {
-                    HStack(spacing: 10) {
-                        statCell(value: "\(sessions.count)", label: "sessions")
-                        statCell(value: "\(bottleCount)", label: "bottle feeds")
-                        statCell(value: "\(breastCount)", label: "breast feeds")
+                    VStack(spacing: 0) {
+                        HStack(spacing: 10) {
+                            statCell(value: "\(sessions.count)", label: "total")
+                            statCell(value: "\(breastCount)", label: "breast feeds")
+                            statCell(value: "\(bottleCount)", label: "bottle")
+                        }
+                        if pumpCount > 0 {
+                            HStack(spacing: 10) {
+                                statCell(value: "\(pumpCount)", label: "pump sessions")
+                                Spacer()
+                            }
+                            .padding(.top, 8)
+                        }
                     }
                     .padding(.bottom, 20)
 
@@ -1082,7 +1091,8 @@ private struct DataSubView: View {
     }
 
     private var bottleCount: Int { sessions.filter { $0.feedType == .bottle }.count }
-    private var breastCount: Int { sessions.filter { $0.feedType != .bottle }.count }
+    private var breastCount: Int { sessions.filter { $0.feedType == .left || $0.feedType == .right }.count }
+    private var pumpCount:   Int { sessions.filter { $0.feedType == .pump }.count }
 
     private func statCell(value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -1103,18 +1113,29 @@ private struct DataSubView: View {
         let df = DateFormatter(); df.dateFormat = "d MMM yyyy"
         let tf = DateFormatter(); tf.dateFormat = "HH:mm"
 
-        var csv = "Date,Start Time,Duration (mins),Left Duration (mins),Right Duration (mins),Side,Bottle Type,Amount ML\n"
+        var csv = "Date,Start Time,Type,Duration (mins),Left Duration (mins),Right Duration (mins),Side,Pump Side,Bottle Type,Amount ML,Volume ML,Notes\n"
         for s in sessions {
-            let side = s.feedType == .bottle ? "" : s.feedType.displayName
+            let typeLabel: String
+            switch s.feedType {
+            case .left, .right: typeLabel = "breast"
+            case .bottle:       typeLabel = "bottle"
+            case .pump:         typeLabel = "pump"
+            }
+            let breastSide = (s.feedType == .left || s.feedType == .right) ? s.feedType.displayName : ""
+            let notes = s.notes.map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" } ?? ""
             let row = [
                 df.string(from: s.startTime),
                 tf.string(from: s.startTime),
+                typeLabel,
                 "\(s.totalActiveMinutes)",
                 "\(s.leftMinutesResolved)",
                 "\(s.rightMinutesResolved)",
-                side,
+                breastSide,
+                s.pumpSide?.displayName ?? "",
                 s.bottleContentType?.displayName ?? "",
-                s.bottleAmountMl.map { "\($0)" } ?? ""
+                s.bottleAmountMl.map { "\($0)" } ?? "",
+                s.pumpVolumeMl.map { "\($0)" } ?? "",
+                notes
             ].joined(separator: ",")
             csv += row + "\n"
         }

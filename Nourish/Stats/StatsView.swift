@@ -31,6 +31,8 @@ struct StatsView: View {
     @State private var historyFromDate: Date? = nil
     /// Optional "To" date for the History tab range filter. nil = no upper bound.
     @State private var historyToDate: Date? = nil
+    /// Type filter on the History tab: 0=All, 1=Feeds, 2=Pumps.
+    @State private var historyTypeFilter: Int = 0
     /// First-of-month date driving the History filter calendar.
     @State private var historyFilterMonth: Date = {
         let cal = Calendar.current
@@ -70,17 +72,31 @@ struct StatsView: View {
         return sessions.filter { $0.startTime >= r.start && $0.startTime < r.end }
     }
 
-    private var breastSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType != .bottle } }
+    private var breastSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType == .left || $0.feedType == .right } }
     private var bottleSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType == .bottle } }
+    private var pumpSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .pump } }
     private var leftSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .left } }
     private var rightSessions: [FeedingSession]   { filteredSessions.filter { $0.feedType == .right } }
+
+    private var hasPumpSessions: Bool { !sessions.filter { $0.feedType == .pump }.isEmpty }
 
     private var totalSessions: Int { filteredSessions.count }
 
     private var avgDurationMins: Int {
-        guard !breastSessions.isEmpty else { return 0 }
-        let total = breastSessions.reduce(0) { $0 + $1.totalActiveMinutes }
-        return total / breastSessions.count
+        let activeSessions = filteredSessions.filter { $0.feedType != .bottle }
+        guard !activeSessions.isEmpty else { return 0 }
+        let total = activeSessions.reduce(0) { $0 + $1.totalActiveMinutes }
+        return total / activeSessions.count
+    }
+
+    private var totalPumpVolumeMl: Int {
+        pumpSessions.compactMap(\.pumpVolumeMl).reduce(0, +)
+    }
+
+    private var avgPumpVolumeMl: Int {
+        let withVolume = pumpSessions.filter { $0.pumpVolumeMl != nil }
+        guard !withVolume.isEmpty else { return 0 }
+        return withVolume.compactMap(\.pumpVolumeMl).reduce(0, +) / withVolume.count
     }
 
     private var avgGapHours: Double {
@@ -1192,6 +1208,7 @@ struct StatsView: View {
     // MARK: Feed breakdown
 
     private var hasBottleFeeds: Bool { !bottleSessions.isEmpty }
+    private var hasPumpFeeds: Bool   { !pumpSessions.isEmpty }
 
     /// Approx feeding minutes per bottle session, used so bottle feeds carry
     /// some weight in the Feed Breakdown bar even though we don't track an
@@ -1210,13 +1227,22 @@ struct StatsView: View {
         bottleSessions.count * Self.bottleEquivalentMinutes
     }
 
+    private var pumpMinutesTotal: Int {
+        pumpSessions.reduce(0) { $0 + $1.totalActiveMinutes }
+    }
+
     private var totalFeedMinutes: Int {
-        leftMinutesTotal + rightMinutesTotal + bottleEquivalentMinutesTotal
+        leftMinutesTotal + rightMinutesTotal + bottleEquivalentMinutesTotal + pumpMinutesTotal
     }
 
     private var bottleFractionOfTotal: Double {
         guard totalFeedMinutes > 0 else { return 0 }
         return Double(bottleEquivalentMinutesTotal) / Double(totalFeedMinutes)
+    }
+
+    private var pumpFractionOfTotal: Double {
+        guard totalFeedMinutes > 0 else { return 0 }
+        return Double(pumpMinutesTotal) / Double(totalFeedMinutes)
     }
 
     private var breastVsBottleCard: some View {
@@ -1242,6 +1268,9 @@ struct StatsView: View {
         if hasBottleFeeds {
             bottleTypeBreakdown
         }
+        if hasPumpFeeds && !pumpSessions.isEmpty {
+            pumpBreakdown
+        }
     }
 
     // MARK: Adaptive single-row bar
@@ -1261,41 +1290,51 @@ struct StatsView: View {
             GeometryReader { geo in
                 HStack(spacing: 3) {
                     if leftFractionOfTotal > 0 {
-                        Capsule()
-                            .fill(c.leftAccent)
+                        Capsule().fill(c.leftAccent)
                             .frame(width: geo.size.width * leftFractionOfTotal)
                     }
                     if rightFractionOfTotal > 0 {
-                        Capsule()
-                            .fill(c.rightAccent)
+                        Capsule().fill(c.rightAccent)
                             .frame(width: geo.size.width * rightFractionOfTotal)
                     }
                     if bottleFractionOfTotal > 0 {
-                        Capsule()
-                            .fill(c.bottleAccent)
+                        Capsule().fill(c.bottleAccent)
+                            .frame(width: geo.size.width * bottleFractionOfTotal)
+                    }
+                    if pumpFractionOfTotal > 0 {
+                        Capsule().fill(c.pumpAccent)
                             .frame(maxWidth: .infinity)
+                    } else if bottleFractionOfTotal == 0 && leftFractionOfTotal == 0 && rightFractionOfTotal == 0 {
+                        Capsule().fill(c.muted.opacity(0.2)).frame(maxWidth: .infinity)
                     }
                 }
             }
             .frame(height: 16)
 
-            HStack {
+            HStack(spacing: 10) {
                 if leftFractionOfTotal > 0 {
                     legendDot(color: c.leftAccent, label: "Left \(percent(leftFractionOfTotal))%")
                 }
                 if rightFractionOfTotal > 0 {
-                    Spacer()
                     legendDot(color: c.rightAccent, label: "Right \(percent(rightFractionOfTotal))%")
                 }
                 if bottleFractionOfTotal > 0 {
-                    Spacer()
                     HStack(spacing: 4) {
-                        Text("🍼").font(.nSans(12))
+                        Text("🍼").font(.nSans(11))
                         Text("Bottle \(percent(bottleFractionOfTotal))%")
                             .font(.nSans(12, weight: .semibold))
                             .foregroundStyle(c.bottleAccent)
                     }
                 }
+                if pumpFractionOfTotal > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "drop.fill").font(.nSans(10)).foregroundStyle(c.pumpAccent)
+                        Text("Pump \(percent(pumpFractionOfTotal))%")
+                            .font(.nSans(12, weight: .semibold))
+                            .foregroundStyle(c.pumpAccent)
+                    }
+                }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -1334,6 +1373,50 @@ struct StatsView: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.bottleBorder, lineWidth: 1))
             }
         }
+    }
+
+    @ViewBuilder
+    private var pumpBreakdown: some View {
+        Divider().overlay(c.border).padding(.bottom, 10)
+
+        Text("Pump")
+            .font(.nSans(11, weight: .bold))
+            .foregroundStyle(c.muted)
+            .kerning(0.08 * 11)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 7)
+
+        HStack(spacing: 8) {
+            pumpStatCell(value: "\(pumpSessions.count)", label: "sessions")
+            if avgPumpVolumeMl > 0 {
+                pumpStatCell(value: "\(avgPumpVolumeMl) ml", label: "avg volume")
+            }
+            if totalPumpVolumeMl > 0 {
+                pumpStatCell(value: "\(totalPumpVolumeMl) ml", label: "total pumped")
+            }
+        }
+    }
+
+    private func pumpStatCell(value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Image(systemName: "drop.fill").font(.nSans(11)).foregroundStyle(c.pumpAccent)
+                Text(value)
+                    .font(.nSans(14, weight: .bold))
+                    .foregroundStyle(c.pumpAccent)
+                    .lineLimit(1)
+            }
+            Text(label)
+                .font(.nSans(11))
+                .foregroundStyle(c.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(c.pumpBg)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.pumpBorder, lineWidth: 1))
     }
 
     private func percent(_ fraction: Double) -> Int {
@@ -1473,6 +1556,11 @@ struct StatsView: View {
         let filtered = sessions.filter { session in
             if let lower = lowerBound, session.startTime < lower { return false }
             if let upper = upperBound, session.startTime >= upper { return false }
+            // Type filter (only active when pump sessions exist)
+            if hasPumpSessions {
+                if historyTypeFilter == 1 && session.feedType == .pump { return false }
+                if historyTypeFilter == 2 && session.feedType != .pump { return false }
+            }
             return true
         }
 
@@ -1493,48 +1581,82 @@ struct StatsView: View {
     private var historyList: some View {
         if sessions.isEmpty {
             ScrollView { historyEmptyState }
-        } else if historyDays.isEmpty {
-            ScrollView { historyFilterEmptyState }
         } else {
-            List {
-                ForEach(historyDays, id: \.date) { day in
-                    Section {
-                        ForEach(Array(day.sessions.enumerated()), id: \.element.id) { offset, session in
-                            VStack(spacing: 0) {
-                                historyRow(session)
-                                Divider().overlay(c.border).padding(.horizontal, 20)
-                            }
-                            .listRowBackground(c.bg)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets())
-                            .tooltipTargetIf(
-                                day.date == historyDays.first?.date && offset == 0,
-                                .historySwipe
-                            )
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    sessionPendingDelete = session
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                Button {
-                                    editingSession = session
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(.blue)
-                            }
-                        }
-                    } header: {
-                        historySectionHeader(date: day.date, count: day.sessions.count)
-                    }
+            VStack(spacing: 0) {
+                if hasPumpSessions {
+                    historyTypeFilterPills
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 10)
+                }
+                if historyDays.isEmpty {
+                    ScrollView { historyFilterEmptyState }
+                } else {
+                    historyListContent
                 }
             }
-            .listStyle(.plain)
-            .listSectionSpacing(0)
-            .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListHeaderHeight, 0)
         }
+    }
+
+    private var historyTypeFilterPills: some View {
+        HStack(spacing: 8) {
+            ForEach([(0, "All"), (1, "Feeds"), (2, "Pumps")], id: \.0) { idx, label in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { historyTypeFilter = idx }
+                } label: {
+                    Text(label)
+                        .font(.nSans(13, weight: .semibold))
+                        .foregroundStyle(historyTypeFilter == idx ? c.bg : c.muted)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(historyTypeFilter == idx ? c.ink : Color.clear)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(historyTypeFilter == idx ? c.ink : c.border, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
+
+    private var historyListContent: some View {
+        List {
+            ForEach(historyDays, id: \.date) { day in
+                Section {
+                    ForEach(Array(day.sessions.enumerated()), id: \.element.id) { offset, session in
+                        VStack(spacing: 0) {
+                            historyRow(session)
+                            Divider().overlay(c.border).padding(.horizontal, 20)
+                        }
+                        .listRowBackground(c.bg)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets())
+                        .tooltipTargetIf(
+                            day.date == historyDays.first?.date && offset == 0,
+                            .historySwipe
+                        )
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                sessionPendingDelete = session
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            Button {
+                                editingSession = session
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.blue)
+                        }
+                    }
+                } header: {
+                    historySectionHeader(date: day.date, count: day.sessions.count)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .listSectionSpacing(0)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListHeaderHeight, 0)
     }
 
     private func historySectionHeader(date: Date, count: Int) -> some View {
@@ -1558,9 +1680,18 @@ struct StatsView: View {
         HStack(spacing: 12) {
             // Side indicator
             Group {
-                if s.feedType == .bottle {
+                switch s.feedType {
+                case .bottle:
                     Text("🍼").font(.nSans(20))
-                } else {
+                case .pump:
+                    Image(systemName: "drop.fill")
+                        .font(.nSans(16))
+                        .foregroundStyle(c.pumpAccent)
+                        .frame(width: 36, height: 36)
+                        .background(c.pumpBg)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(c.pumpBorder, lineWidth: 1.5))
+                default:
                     Text(s.feedType.shortLabel)
                         .font(.nSans(14, weight: .bold))
                         .foregroundStyle(s.feedType == .left ? c.leftText : c.rightText)
@@ -1575,16 +1706,29 @@ struct StatsView: View {
                 }
             }
 
-            // Left block — date on top, time + total below (or just time for bottle)
+            // Left block
             VStack(alignment: .leading, spacing: 2) {
-                Text(s.startTime.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                    .font(.nSans(14, weight: .semibold))
-                    .foregroundStyle(c.ink)
-                if s.feedType == .bottle {
+                HStack(spacing: 4) {
+                    Text(s.startTime.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                        .font(.nSans(14, weight: .semibold))
+                        .foregroundStyle(c.ink)
+                    // Note indicator
+                    if let notes = s.notes, !notes.isEmpty {
+                        Image(systemName: "note.text")
+                            .font(.nSans(10))
+                            .foregroundStyle(c.muted.opacity(0.7))
+                    }
+                }
+                switch s.feedType {
+                case .bottle:
                     Text(s.startTime.formatted(date: .omitted, time: .shortened))
                         .font(.nSans(12))
                         .foregroundStyle(c.muted)
-                } else {
+                case .pump:
+                    Text(historyPumpSubtitle(s))
+                        .font(.nSans(12))
+                        .foregroundStyle(c.muted)
+                default:
                     Text(historyTimeAndTotal(s))
                         .font(.nSans(12))
                         .foregroundStyle(c.muted)
@@ -1593,8 +1737,9 @@ struct StatsView: View {
 
             Spacer()
 
-            // Right block — bottle: ml + type. Breast: per-side durations.
-            if s.feedType == .bottle {
+            // Right block
+            switch s.feedType {
+            case .bottle:
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(s.bottleAmountMl.map { "\($0) ml" } ?? "—")
                         .font(.nSans(14, weight: .bold))
@@ -1605,7 +1750,18 @@ struct StatsView: View {
                             .foregroundStyle(c.muted)
                     }
                 }
-            } else {
+            case .pump:
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(s.totalActiveMinutes) min")
+                        .font(.nSans(13, weight: .semibold))
+                        .foregroundStyle(c.pumpAccent)
+                    if let vol = s.pumpVolumeMl {
+                        Text("\(vol) ml")
+                            .font(.nSans(11))
+                            .foregroundStyle(c.muted)
+                    }
+                }
+            default:
                 VStack(alignment: .leading, spacing: 2) {
                     if s.leftMinutesResolved > 0 {
                         Text("L: \(formatMins(s.leftMinutesResolved))")
@@ -1624,11 +1780,16 @@ struct StatsView: View {
         .padding(.vertical, 12)
     }
 
-    /// "16:22 · Total: 17:00" — start time + total active duration.
     private func historyTimeAndTotal(_ s: FeedingSession) -> String {
         let time = s.startTime.formatted(date: .omitted, time: .shortened)
         let total = s.leftMinutesResolved + s.rightMinutesResolved
         return "\(time) · Total: \(formatMins(total))"
+    }
+
+    private func historyPumpSubtitle(_ s: FeedingSession) -> String {
+        let time = s.startTime.formatted(date: .omitted, time: .shortened)
+        let side = s.pumpSide?.displayName ?? "Pump"
+        return "\(time) · \(side)"
     }
 
     private func formatMins(_ minutes: Int) -> String {

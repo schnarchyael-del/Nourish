@@ -46,6 +46,19 @@ enum AnalyticsService {
         log("session_deleted")
     }
 
+    static func pumpSessionStarted(side: String) {
+        log("pump_session_started", ["side": side])
+    }
+
+    static func pumpSessionCompleted(side: String, durationSeconds: Int, volumeMl: Int?) {
+        var params: [String: Any] = [
+            "side": side,
+            "duration_seconds": durationSeconds,
+        ]
+        if let v = volumeMl { params["volume_ml"] = v }
+        log("pump_session_completed", params)
+    }
+
     // MARK: Feature usage
 
     static func exportCSV() {

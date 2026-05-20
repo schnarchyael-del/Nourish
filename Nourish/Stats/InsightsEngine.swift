@@ -141,7 +141,7 @@ struct InsightsEngine {
     // MARK: - Session sets
 
     private var breastSessions: [FeedingSession] {
-        sessions.filter { $0.feedType != .bottle }
+        sessions.filter { $0.feedType == .left || $0.feedType == .right }
     }
 
     private var sessionsInPatternWindow: [FeedingSession] {
@@ -154,7 +154,7 @@ struct InsightsEngine {
 
     private func patterns() -> [Insight] {
         var out: [Insight] = []
-        let pool = sessionsInPatternWindow.filter { $0.feedType != .bottle }
+        let pool = sessionsInPatternWindow.filter { $0.feedType == .left || $0.feedType == .right }
         guard pool.count >= 8 else { return [] }
 
         if let i = morningVsEveningInsight(pool) { out.append(i) }
@@ -294,8 +294,8 @@ struct InsightsEngine {
     }
 
     private func durationTrend(current: [FeedingSession], prior: [FeedingSession]) -> Insight? {
-        let cBreast = current.filter { $0.feedType != .bottle }
-        let pBreast = prior.filter   { $0.feedType != .bottle }
+        let cBreast = current.filter { $0.feedType == .left || $0.feedType == .right }
+        let pBreast = prior.filter   { $0.feedType == .left || $0.feedType == .right }
         guard cBreast.count >= 3, pBreast.count >= 3 else { return nil }
         let cAvg = avgActiveMinutes(cBreast)
         let pAvg = avgActiveMinutes(pBreast)

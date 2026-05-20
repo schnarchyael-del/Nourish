@@ -11,6 +11,7 @@ enum TooltipID: String, CaseIterable {
     case endSession
     case statsHint
     case historySwipe
+    case pumpButton
 
     var storageKey: String { "tooltip_\(rawValue)_shown" }
 
@@ -30,6 +31,8 @@ enum TooltipID: String, CaseIterable {
             return "Your feeding patterns will appear here as you log more feeds 📊"
         case .historySwipe:
             return "Swipe left on any session to edit or delete"
+        case .pumpButton:
+            return "Track pump sessions — duration, volume, and notes"
         }
     }
 
@@ -40,6 +43,8 @@ enum TooltipID: String, CaseIterable {
         default:                     return false
         }
     }
+
+    var isNewInSequence: Bool { self == .pumpButton }
 
     /// The next tooltip in this screen's sequence, if any. Tooltip bubbles
     /// show a → button when `next` is set, otherwise an X.

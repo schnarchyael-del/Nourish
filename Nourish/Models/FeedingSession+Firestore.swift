@@ -15,6 +15,9 @@ extension FeedingSession {
         if let bottleContentType { data["bottleContentType"] = bottleContentType.rawValue }
         if let bottleAmountMl    { data["bottleAmountMl"] = bottleAmountMl }
         if let loggedByDeviceID  { data["loggedByDeviceID"] = loggedByDeviceID }
+        if let pumpSide          { data["pumpSide"] = pumpSide.rawValue }
+        if let pumpVolumeMl      { data["pumpVolumeMl"] = pumpVolumeMl }
+        if let notes, !notes.isEmpty { data["notes"] = notes }
         return data
     }
 
@@ -36,6 +39,11 @@ extension FeedingSession {
             bottleContentType = BottleContentType(rawValue: raw)
         }
 
+        var pumpSide: PumpSide?
+        if let raw = data["pumpSide"] as? String {
+            pumpSide = PumpSide(rawValue: raw)
+        }
+
         let session = FeedingSession(
             startTime: startTime,
             feedType: feedType,
@@ -44,7 +52,10 @@ extension FeedingSession {
             bottleAmountMl: data["bottleAmountMl"] as? Int,
             leftDurationMins: data["leftDurationMins"] as? Int,
             rightDurationMins: data["rightDurationMins"] as? Int,
-            loggedByDeviceID: data["loggedByDeviceID"] as? String
+            loggedByDeviceID: data["loggedByDeviceID"] as? String,
+            pumpSide: pumpSide,
+            pumpVolumeMl: data["pumpVolumeMl"] as? Int,
+            notes: data["notes"] as? String
         )
         session.id = id
         return session

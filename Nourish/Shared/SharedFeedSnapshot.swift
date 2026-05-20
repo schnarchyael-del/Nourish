@@ -71,11 +71,10 @@ enum SharedFeedSnapshot {
         }
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
 
-        // Last feed — use startTime so the widget's "X min ago" matches the
-        // app's HomeView timeAgoString (which is also computed from startTime).
-        // SwiftData only ever holds completed sessions, so `last` is never an
-        // in-progress / discarded session.
-        if let last = sessions.first {
+        // Last FEED (breast or bottle only — pump sessions don't tell the user
+        // when the baby last ate, which is what the widget shows).
+        let lastFeed = sessions.first(where: { $0.feedType != .pump })
+        if let last = lastFeed {
             let lastSide = last.feedType.rawValue
             let durationSeconds = last.feedType == .bottle
                 ? 0
@@ -88,7 +87,6 @@ enum SharedFeedSnapshot {
             defaults.set(last.leftMinutesResolved,  forKey: Key.lastFeedLeftMinutes)
             defaults.set(last.rightMinutesResolved, forKey: Key.lastFeedRightMinutes)
             defaults.set(last.bottleAmountMl ?? 0,  forKey: Key.lastFeedBottleMl)
-            print("[SharedFeedSnapshot] lastFeedTime=\(last.startTime) (session id=\(last.id), side=\(lastSide))")
         } else {
             defaults.removeObject(forKey: Key.lastFeedTime)
             defaults.set(0, forKey: Key.lastFeedDuration)
@@ -97,12 +95,11 @@ enum SharedFeedSnapshot {
             defaults.set(0, forKey: Key.lastFeedLeftMinutes)
             defaults.set(0, forKey: Key.lastFeedRightMinutes)
             defaults.set(0, forKey: Key.lastFeedBottleMl)
-            print("[SharedFeedSnapshot] no completed sessions in store — cleared lastFeed*")
         }
 
-        // Today's totals (since startOfDay)
+        // Today's feed totals (since startOfDay, breast+bottle only — pumps excluded)
         let dayStart = Calendar.current.startOfDay(for: .now)
-        let today = sessions.filter { $0.startTime >= dayStart }
+        let today = sessions.filter { $0.startTime >= dayStart && $0.feedType != .pump }
         let leftToday  = today.reduce(0) { $0 + $1.leftMinutesResolved }
         let rightToday = today.reduce(0) { $0 + $1.rightMinutesResolved }
         defaults.set(today.count, forKey: Key.todaySessionCount)

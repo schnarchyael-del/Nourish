@@ -190,6 +190,18 @@ struct NourishColors {
         bottleAccent.opacity(0.28)
     }
 
+    // MARK: Pump
+
+    var pumpAccent: Color {
+        darkMode ? Color(hex: "6FBAAD") : Color(hex: "2E9080")
+    }
+    var pumpBg: Color {
+        darkMode ? pumpAccent.opacity(0.18) : Color(hex: "EAF4F2")
+    }
+    var pumpBorder: Color {
+        pumpAccent.opacity(0.28)
+    }
+
     // MARK: Helpers
 
     /// Backing color for fields/inputs that previously hard-coded `.white` —

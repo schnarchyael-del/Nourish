@@ -9,6 +9,7 @@ struct BottleFeedSheet: View {
     @State private var step: Int = 1
     @State private var bottleType: BottleContentType = .breastmilk
     @State private var amountMl: Int = 120
+    @State private var notes: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -159,6 +160,24 @@ struct BottleFeedSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.bottleBorder, lineWidth: 1.5))
             .padding(.bottom, 16)
 
+            // Notes field
+            HStack(spacing: 8) {
+                Image(systemName: "note.text")
+                    .font(.nSans(13))
+                    .foregroundStyle(c.muted)
+                TextField("Add a note...", text: $notes)
+                    .font(.nSans(14))
+                    .foregroundStyle(c.ink)
+                    .tint(c.bottleAccent)
+                    .submitLabel(.done)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 42)
+            .background(c.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(c.border, lineWidth: 1))
+            .padding(.bottom, 10)
+
             HStack(spacing: 10) {
                 Button("Skip amount") {
                     save(ml: nil)
@@ -203,7 +222,8 @@ struct BottleFeedSheet: View {
             feedType: .bottle,
             endTime: .now,
             bottleContentType: bottleType,
-            bottleAmountMl: ml
+            bottleAmountMl: ml,
+            notes: notes.isEmpty ? nil : notes
         )
         modelContext.insert(session)
         try? modelContext.save()
