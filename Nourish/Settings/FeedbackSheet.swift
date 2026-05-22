@@ -1,6 +1,7 @@
 import SwiftUI
 import MessageUI
 import UIKit
+import FirebaseAuth
 
 struct FeedbackSheet: View {
     @Environment(\.nourishColors) private var c
@@ -8,6 +9,7 @@ struct FeedbackSheet: View {
     @ObservedObject private var auth = AuthManager.shared
 
     @State private var feedbackText = ""
+    @State private var replyEmail = ""
     @State private var showMailComposer = false
     @State private var showFallbackAlert = false
 
@@ -21,6 +23,8 @@ struct FeedbackSheet: View {
         let ios     = UIDevice.current.systemVersion
         let device  = UIDevice.current.model
         let userId  = auth.userId ?? "not signed in"
+        let trimmedEmail = replyEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replyLine = trimmedEmail.isEmpty ? "" : "\nReply-to: \(trimmedEmail)"
         return """
 
 
@@ -28,7 +32,7 @@ struct FeedbackSheet: View {
         App: \(version) (\(build))
         iOS: \(ios)
         Device: \(device)
-        User: \(userId)
+        User: \(userId)\(replyLine)
         """
     }
 
@@ -57,6 +61,26 @@ struct FeedbackSheet: View {
             .padding(.horizontal, 22)
             .padding(.top, 22)
             .padding(.bottom, 18)
+
+            // Optional reply email
+            HStack(spacing: 10) {
+                Image(systemName: "envelope")
+                    .font(.system(size: 14))
+                    .foregroundStyle(c.muted.opacity(0.6))
+                TextField("Your email for follow-up (optional)", text: $replyEmail)
+                    .font(.nSans(14))
+                    .foregroundStyle(c.ink)
+                    .keyboardType(.emailAddress)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            .background(c.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.border, lineWidth: 1))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
 
             // Text input
             ZStack(alignment: .topLeading) {
@@ -123,6 +147,9 @@ struct FeedbackSheet: View {
         }
         .onAppear {
             AnalyticsService.feedbackOpened()
+            if replyEmail.isEmpty, let email = auth.currentUser?.email {
+                replyEmail = email
+            }
         }
     }
 
