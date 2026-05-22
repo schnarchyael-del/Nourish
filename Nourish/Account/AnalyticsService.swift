@@ -91,6 +91,11 @@ enum AnalyticsService {
         log("account_created_email")
     }
 
+    // MARK: Feedback
+
+    static func feedbackOpened() { log("feedback_opened") }
+    static func feedbackSent()   { log("feedback_sent") }
+
     // MARK: Onboarding
 
     static func babyProfileCreated() {

@@ -22,6 +22,7 @@ struct SettingsView: View {
 
     @State private var activeSheet: ActiveSheet? = nil
     @State private var showEmailSignIn = false
+    @State private var showFeedback = false
 
     enum ActiveSheet: String, Identifiable {
         case profile, baby, appearance, partner, alarm, reminder, data
@@ -64,6 +65,14 @@ struct SettingsView: View {
                     .presentationDetents([.fraction(0.875)])
                     .presentationDragIndicator(.hidden)
                     .presentationCornerRadius(28)
+            }
+            .sheet(isPresented: $showFeedback) {
+                FeedbackSheet()
+                    .environment(\.nourishColors, c)
+                    .presentationDetents([.fraction(0.875)])
+                    .presentationDragIndicator(.hidden)
+                    .presentationCornerRadius(28)
+                    .presentationBackground(c.bg)
             }
             .alert(
                 "Replace local data?",
@@ -152,6 +161,17 @@ struct SettingsView: View {
                         Button { activeSheet = .data } label: {
                             settingsNavRow(icon: "📤", label: "Export sessions",
                                           sub: "Download your feeding history as CSV")
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    settingsGroup("Support") {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showFeedback = true
+                        } label: {
+                            settingsNavRow(icon: "💬", label: "Send Feedback",
+                                          sub: "Bugs, ideas, or anything on your mind")
                         }
                         .buttonStyle(.plain)
                     }
