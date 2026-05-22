@@ -1238,22 +1238,13 @@ struct StatsView: View {
         bottleSessions.count * Self.bottleEquivalentMinutes
     }
 
-    private var pumpMinutesTotal: Int {
-        pumpSessions.reduce(0) { $0 + $1.totalActiveMinutes }
-    }
-
     private var totalFeedMinutes: Int {
-        leftMinutesTotal + rightMinutesTotal + bottleEquivalentMinutesTotal + pumpMinutesTotal
+        leftMinutesTotal + rightMinutesTotal + bottleEquivalentMinutesTotal
     }
 
     private var bottleFractionOfTotal: Double {
         guard totalFeedMinutes > 0 else { return 0 }
         return Double(bottleEquivalentMinutesTotal) / Double(totalFeedMinutes)
-    }
-
-    private var pumpFractionOfTotal: Double {
-        guard totalFeedMinutes > 0 else { return 0 }
-        return Double(pumpMinutesTotal) / Double(totalFeedMinutes)
     }
 
     private var breastVsBottleCard: some View {
@@ -1300,22 +1291,30 @@ struct StatsView: View {
         VStack(spacing: 8) {
             GeometryReader { geo in
                 HStack(spacing: 3) {
-                    if leftFractionOfTotal > 0 {
-                        Capsule().fill(c.leftAccent)
-                            .frame(width: geo.size.width * leftFractionOfTotal)
+                    let hasLeft   = leftFractionOfTotal > 0
+                    let hasRight  = rightFractionOfTotal > 0
+                    let hasBottle = bottleFractionOfTotal > 0
+                    if hasLeft {
+                        // Fixed width unless it's the only segment
+                        if hasRight || hasBottle {
+                            Capsule().fill(c.leftAccent)
+                                .frame(width: geo.size.width * leftFractionOfTotal)
+                        } else {
+                            Capsule().fill(c.leftAccent).frame(maxWidth: .infinity)
+                        }
                     }
-                    if rightFractionOfTotal > 0 {
-                        Capsule().fill(c.rightAccent)
-                            .frame(width: geo.size.width * rightFractionOfTotal)
+                    if hasRight {
+                        if hasBottle {
+                            Capsule().fill(c.rightAccent)
+                                .frame(width: geo.size.width * rightFractionOfTotal)
+                        } else {
+                            Capsule().fill(c.rightAccent).frame(maxWidth: .infinity)
+                        }
                     }
-                    if bottleFractionOfTotal > 0 {
-                        Capsule().fill(c.bottleAccent)
-                            .frame(width: geo.size.width * bottleFractionOfTotal)
+                    if hasBottle {
+                        Capsule().fill(c.bottleAccent).frame(maxWidth: .infinity)
                     }
-                    if pumpFractionOfTotal > 0 {
-                        Capsule().fill(c.pumpAccent)
-                            .frame(maxWidth: .infinity)
-                    } else if bottleFractionOfTotal == 0 && leftFractionOfTotal == 0 && rightFractionOfTotal == 0 {
+                    if !hasLeft && !hasRight && !hasBottle {
                         Capsule().fill(c.muted.opacity(0.2)).frame(maxWidth: .infinity)
                     }
                 }
@@ -1335,14 +1334,6 @@ struct StatsView: View {
                         Text("Bottle \(percent(bottleFractionOfTotal))%")
                             .font(.nSans(12, weight: .semibold))
                             .foregroundStyle(c.bottleAccent)
-                    }
-                }
-                if pumpFractionOfTotal > 0 {
-                    HStack(spacing: 4) {
-                        Image("pump_icon").renderingMode(.template).resizable().scaledToFit().frame(height: 10).foregroundStyle(c.pumpAccent)
-                        Text("Pump \(percent(pumpFractionOfTotal))%")
-                            .font(.nSans(12, weight: .semibold))
-                            .foregroundStyle(c.pumpAccent)
                     }
                 }
                 Spacer(minLength: 0)
