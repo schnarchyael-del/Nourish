@@ -19,7 +19,7 @@ struct HomeView: View {
     @State private var avatarResetTask: DispatchWorkItem? = nil
     @State private var didInitialEvaluate = false
 
-    private var lastSession: FeedingSession? { sessions.first }
+    private var lastFeed: FeedingSession? { sessions.first(where: { $0.feedType != .pump }) }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: .now)
@@ -37,8 +37,7 @@ struct HomeView: View {
                 header
                 lastSessionCard
                 breastButtons
-                bottleButton
-                pumpButton
+                secondaryButtons
                 logPastButton
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -157,7 +156,7 @@ struct HomeView: View {
         // with reality without us managing scene-phase state by hand.
         TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(alignment: .leading, spacing: 7) {
-                if let s = lastSession {
+                if let s = lastFeed {
                     filledSessionCard(s, now: context.date)
                 } else {
                     emptySessionCard
@@ -176,7 +175,7 @@ struct HomeView: View {
 
     private func filledSessionCard(_ s: FeedingSession, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Last session · \(s.formattedTime)")
+            Text("Last feed · \(s.formattedTime)")
                 .font(.nSans(11, weight: .semibold))
                 .foregroundStyle(c.muted)
                 .kerning(0.1 * 11)
@@ -184,20 +183,13 @@ struct HomeView: View {
 
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 3) {
-                    switch s.feedType {
-                    case .bottle:
+                    if s.feedType == .bottle {
                         Text("Bottle · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                    case .pump:
-                        Text("Pump · \(timeAgo(from: s.startTime, now: now))")
-                            .font(.nSans(17, weight: .bold))
-                            .foregroundStyle(c.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    default:
+                    } else {
                         Text("Started \(s.feedType.displayName) · \(timeAgo(from: s.startTime, now: now))")
                             .font(.nSans(17, weight: .bold))
                             .foregroundStyle(c.ink)
@@ -205,19 +197,7 @@ struct HomeView: View {
                             .minimumScaleFactor(0.7)
                     }
 
-                    if s.feedType == .pump {
-                        HStack(spacing: 4) {
-                            Text("\(s.totalActiveMinutes) min")
-                                .font(.nSans(13))
-                                .foregroundStyle(c.muted)
-                            if let vol = s.pumpVolumeMl {
-                                Text("· \(vol) ml")
-                                    .font(.nSans(13))
-                                    .foregroundStyle(c.muted)
-                            }
-                        }
-                        .lineLimit(1)
-                    } else if s.feedType != .bottle {
+                    if s.feedType != .bottle {
                         Text("\(s.totalActiveMinutes) min total")
                             .font(.nSans(13))
                             .foregroundStyle(c.muted)
@@ -232,8 +212,9 @@ struct HomeView: View {
                 }
                 Spacer(minLength: 8)
 
-                switch s.feedType {
-                case .left, .right:
+                if s.feedType == .bottle {
+                    Text("🍼").font(.nSans(22))
+                } else {
                     NourishPill(
                         label: s.feedType.shortLabel,
                         fill: s.feedType == .left ? c.leftBg : c.rightBg,
@@ -242,12 +223,6 @@ struct HomeView: View {
                             : c.rightAccent.opacity(0.2),
                         color: s.feedType == .left ? c.leftText : c.rightText
                     )
-                case .bottle:
-                    Text("🍼").font(.nSans(22))
-                case .pump:
-                    Image(systemName: "drop.fill")
-                        .font(.nSans(20))
-                        .foregroundStyle(c.pumpAccent)
                 }
             }
         }
@@ -347,54 +322,54 @@ struct HomeView: View {
         }
     }
 
-    // MARK: Bottle & Log buttons
+    // MARK: Secondary buttons (Bottle + Pump side by side)
 
-    private var bottleButton: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            showBottleSheet = true
-        } label: {
-            HStack(spacing: 8) {
-                Text("🍼")
-                    .font(.nSans(19))
-                Text("Bottle feed")
-                    .font(.nSans(15, weight: .semibold))
-                    .foregroundStyle(c.bottleAccent)
+    private var secondaryButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showBottleSheet = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text("🍼").font(.nSans(17))
+                    Text("Bottle")
+                        .font(.nSans(14, weight: .semibold))
+                        .foregroundStyle(c.bottleAccent)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(c.bottleBg)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.bottleBorder, lineWidth: 1.5))
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(c.bottleBg)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.bottleBorder, lineWidth: 1.5))
+            .buttonStyle(ScaleButtonStyle())
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onPump()
+            } label: {
+                HStack(spacing: 6) {
+                    Image("pump_icon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 15)
+                        .foregroundStyle(c.pumpAccent)
+                    Text("Pump")
+                        .font(.nSans(14, weight: .semibold))
+                        .foregroundStyle(c.pumpAccent)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(c.pumpBg)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.pumpBorder, lineWidth: 1.5))
+            }
+            .buttonStyle(ScaleButtonStyle())
+            .tooltipTarget(.pumpButton)
         }
-        .buttonStyle(ScaleButtonStyle())
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
-    }
-
-    private var pumpButton: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onPump()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "drop.fill")
-                    .font(.nSans(17))
-                    .foregroundStyle(c.pumpAccent)
-                Text("Pump session")
-                    .font(.nSans(15, weight: .semibold))
-                    .foregroundStyle(c.pumpAccent)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(c.pumpBg)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.pumpBorder, lineWidth: 1.5))
-        }
-        .buttonStyle(ScaleButtonStyle())
-        .padding(.horizontal, 20)
-        .padding(.bottom, 14)
-        .tooltipTarget(.pumpButton)
     }
 
     private var logPastButton: some View {

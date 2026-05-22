@@ -13,6 +13,7 @@ struct StatsView: View {
     @State private var chartAnimated = false
     @State private var sessionPendingDelete: FeedingSession?
     @State private var editingSession: FeedingSession?
+    @State private var selectedSession: FeedingSession?
     @State private var didEvaluateTooltips = false
 
     /// The date that anchors the Day/Week/Month period the user is viewing.
@@ -31,8 +32,6 @@ struct StatsView: View {
     @State private var historyFromDate: Date? = nil
     /// Optional "To" date for the History tab range filter. nil = no upper bound.
     @State private var historyToDate: Date? = nil
-    /// Type filter on the History tab: 0=All, 1=Feeds, 2=Pumps.
-    @State private var historyTypeFilter: Int = 0
     /// First-of-month date driving the History filter calendar.
     @State private var historyFilterMonth: Date = {
         let cal = Calendar.current
@@ -77,8 +76,6 @@ struct StatsView: View {
     private var pumpSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .pump } }
     private var leftSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .left } }
     private var rightSessions: [FeedingSession]   { filteredSessions.filter { $0.feedType == .right } }
-
-    private var hasPumpSessions: Bool { !sessions.filter { $0.feedType == .pump }.isEmpty }
 
     private var totalSessions: Int { filteredSessions.count }
 
@@ -173,6 +170,7 @@ struct StatsView: View {
         VStack(spacing: 0) {
             header
             tabPicker
+                .padding(.bottom, selectedTab == 3 ? 4 : 14)
             if selectedTab == 3 {
                 historyList
             } else {
@@ -248,6 +246,20 @@ struct StatsView: View {
                 editing: session,
                 onBack: { editingSession = nil },
                 onSave: { editingSession = nil }
+            )
+            .environment(\.nourishColors, c)
+        }
+        .sheet(item: $selectedSession) { session in
+            SessionDetailSheet(
+                session: session,
+                onEdit: {
+                    selectedSession = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { editingSession = session }
+                },
+                onDelete: {
+                    selectedSession = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { sessionPendingDelete = session }
+                }
             )
             .environment(\.nourishColors, c)
         }
@@ -360,7 +372,6 @@ struct StatsView: View {
             .padding(.horizontal, 24)
         }
         .scrollClipDisabled()
-        .padding(.bottom, 14)
     }
 
     private var periodNoun: String {
@@ -1328,7 +1339,7 @@ struct StatsView: View {
                 }
                 if pumpFractionOfTotal > 0 {
                     HStack(spacing: 4) {
-                        Image(systemName: "drop.fill").font(.nSans(10)).foregroundStyle(c.pumpAccent)
+                        Image("pump_icon").renderingMode(.template).resizable().scaledToFit().frame(height: 10).foregroundStyle(c.pumpAccent)
                         Text("Pump \(percent(pumpFractionOfTotal))%")
                             .font(.nSans(12, weight: .semibold))
                             .foregroundStyle(c.pumpAccent)
@@ -1401,7 +1412,7 @@ struct StatsView: View {
     private func pumpStatCell(value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
-                Image(systemName: "drop.fill").font(.nSans(11)).foregroundStyle(c.pumpAccent)
+                Image("pump_icon").renderingMode(.template).resizable().scaledToFit().frame(height: 11).foregroundStyle(c.pumpAccent)
                 Text(value)
                     .font(.nSans(14, weight: .bold))
                     .foregroundStyle(c.pumpAccent)
@@ -1556,11 +1567,6 @@ struct StatsView: View {
         let filtered = sessions.filter { session in
             if let lower = lowerBound, session.startTime < lower { return false }
             if let upper = upperBound, session.startTime >= upper { return false }
-            // Type filter (only active when pump sessions exist)
-            if hasPumpSessions {
-                if historyTypeFilter == 1 && session.feedType == .pump { return false }
-                if historyTypeFilter == 2 && session.feedType != .pump { return false }
-            }
             return true
         }
 
@@ -1581,40 +1587,10 @@ struct StatsView: View {
     private var historyList: some View {
         if sessions.isEmpty {
             ScrollView { historyEmptyState }
+        } else if historyDays.isEmpty {
+            ScrollView { historyFilterEmptyState }
         } else {
-            VStack(spacing: 0) {
-                if hasPumpSessions {
-                    historyTypeFilterPills
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 10)
-                }
-                if historyDays.isEmpty {
-                    ScrollView { historyFilterEmptyState }
-                } else {
-                    historyListContent
-                }
-            }
-        }
-    }
-
-    private var historyTypeFilterPills: some View {
-        HStack(spacing: 8) {
-            ForEach([(0, "All"), (1, "Feeds"), (2, "Pumps")], id: \.0) { idx, label in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { historyTypeFilter = idx }
-                } label: {
-                    Text(label)
-                        .font(.nSans(13, weight: .semibold))
-                        .foregroundStyle(historyTypeFilter == idx ? c.bg : c.muted)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(historyTypeFilter == idx ? c.ink : Color.clear)
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(historyTypeFilter == idx ? c.ink : c.border, lineWidth: 1.5))
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
+            historyListContent
         }
     }
 
@@ -1627,6 +1603,8 @@ struct StatsView: View {
                             historyRow(session)
                             Divider().overlay(c.border).padding(.horizontal, 20)
                         }
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(TapGesture().onEnded { selectedSession = session })
                         .listRowBackground(c.bg)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets())
@@ -1655,6 +1633,7 @@ struct StatsView: View {
         }
         .listStyle(.plain)
         .listSectionSpacing(0)
+        .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListHeaderHeight, 0)
     }
@@ -1670,7 +1649,8 @@ struct StatsView: View {
                 .foregroundStyle(c.muted.opacity(0.85))
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(c.bg)
         .listRowInsets(EdgeInsets())
@@ -1682,11 +1662,19 @@ struct StatsView: View {
             Group {
                 switch s.feedType {
                 case .bottle:
-                    Text("🍼").font(.nSans(20))
+                    Text("🍼")
+                        .font(.nSans(18))
+                        .frame(width: 36, height: 36)
+                        .background(c.bottleBg)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(c.bottleBorder, lineWidth: 1.5))
                 case .pump:
-                    Image(systemName: "drop.fill")
-                        .font(.nSans(16))
+                    Image("pump_icon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
                         .foregroundStyle(c.pumpAccent)
+                        .padding(7)
                         .frame(width: 36, height: 36)
                         .background(c.pumpBg)
                         .clipShape(Circle())
