@@ -89,12 +89,15 @@ struct InsightsEngine {
     func markShown(_ insights: [Insight]) {
         let defaults = UserDefaults.standard
         for insight in insights {
+            if insight.category == .milestone {
+                // Milestones are view-count retired: increment each appearance.
+                let key = InsightKey.viewCount(insight.id)
+                defaults.set(defaults.integer(forKey: key) + 1, forKey: key)
+                continue
+            }
+
             let key = InsightKey.firstShown(insight.id)
             let p = policy(for: insight.category)
-            // Only stamp the firstShown date the first time we surface this
-            // insight — or when its cycle has expired and we're starting a
-            // new round. Don't update on every render; otherwise the stick
-            // window would never elapse.
             if let firstShown = defaults.object(forKey: key) as? Double {
                 if let cycleDays = p.cycleDays {
                     let elapsed = now.timeIntervalSince1970 - firstShown
@@ -102,7 +105,6 @@ struct InsightsEngine {
                         defaults.set(now.timeIntervalSince1970, forKey: key)
                     }
                 }
-                // Otherwise leave firstShown alone — sticky cycle in progress.
             } else {
                 defaults.set(now.timeIntervalSince1970, forKey: key)
             }
@@ -110,12 +112,13 @@ struct InsightsEngine {
     }
 
     /// Returns true if an insight should be displayed in this compute pass.
-    /// Backwards-compatible with the old `insights_milestones_seen` set so
-    /// existing users don't suddenly see retired milestones again.
     private func shouldShow(_ insight: Insight) -> Bool {
         if insight.category == .milestone {
             let legacySeen = Set(UserDefaults.standard.stringArray(forKey: InsightKey.legacyMilestonesSeen) ?? [])
             if legacySeen.contains(insight.id) { return false }
+            // Show for up to 3 stat-screen appearances, then permanently retire.
+            let count = UserDefaults.standard.integer(forKey: InsightKey.viewCount(insight.id))
+            return count < 3
         }
 
         let p = policy(for: insight.category)
@@ -131,10 +134,8 @@ struct InsightsEngine {
     // MARK: - Staleness storage
 
     private enum InsightKey {
-        // `insight_lastShown_<id>` was the original key — keep the same name so
-        // upgrading users don't see a flood of old insights re-fire. We just
-        // re-interpret the stored value as `firstShown` going forward.
         static func firstShown(_ id: String) -> String { "insight_lastShown_\(id)" }
+        static func viewCount(_ id: String) -> String  { "insight_viewCount_\(id)" }
         static let legacyMilestonesSeen = "insights_milestones_seen"
     }
 
