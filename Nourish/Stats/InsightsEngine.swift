@@ -76,12 +76,14 @@ struct InsightsEngine {
         pool.append(contentsOf: milestones().filter { shouldShow($0) })
 
         // Trends — only when the filter has something to compare against.
-        if filter.trendWindowDays != nil {
+        if let windowDays = filter.trendWindowDays {
             pool.append(contentsOf: trends().filter { shouldShow($0) })
+            pool.append(contentsOf: pumpTrends(windowDays: windowDays).filter { shouldShow($0) })
         }
 
         // Patterns.
         pool.append(contentsOf: patterns().filter { shouldShow($0) })
+        pool.append(contentsOf: pumpPatterns().filter { shouldShow($0) })
 
         return Array(pool.sorted { $0.category.rawValue < $1.category.rawValue }.prefix(maxCount))
     }
@@ -145,10 +147,20 @@ struct InsightsEngine {
         sessions.filter { $0.feedType == .left || $0.feedType == .right }
     }
 
+    private var pumpSessions: [FeedingSession] {
+        sessions.filter { $0.feedType == .pump }
+    }
+
     private var sessionsInPatternWindow: [FeedingSession] {
         guard let days = filter.windowDays else { return sessions }
         let start = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
         return sessions.filter { $0.startTime >= start }
+    }
+
+    private var pumpSessionsInWindow: [FeedingSession] {
+        guard let days = filter.windowDays else { return pumpSessions }
+        let start = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
+        return pumpSessions.filter { $0.startTime >= start }
     }
 
     // MARK: - Pattern insights
@@ -355,6 +367,8 @@ struct InsightsEngine {
         out.append(contentsOf: sessionCountMilestone())
         out.append(contentsOf: streakMilestone())
         out.append(contentsOf: totalTimeMilestone())
+        out.append(contentsOf: pumpSessionCountMilestone())
+        out.append(contentsOf: pumpVolumeMilestone())
         return out
     }
 
@@ -415,12 +429,181 @@ struct InsightsEngine {
         )]
     }
 
+    // MARK: - Pump milestones
+
+    private func pumpSessionCountMilestone() -> [Insight] {
+        let count = pumpSessions.count
+        guard let n = [10, 25, 50, 100].last(where: { count >= $0 }) else { return [] }
+        return [Insight(
+            id: "milestone_pump_sessions_\(n)",
+            emoji: "💪",
+            title: "\(n) pump sessions!",
+            description: "You've completed \(n) pump sessions. Every drop counts.",
+            category: .milestone, trend: nil
+        )]
+    }
+
+    private func pumpVolumeMilestone() -> [Insight] {
+        let totalMl = pumpSessions.compactMap(\.pumpVolumeMl).reduce(0, +)
+        guard let ml = [500, 1_000, 2_000, 5_000, 10_000].last(where: { totalMl >= $0 }) else { return [] }
+        let label: String
+        let suffix: String
+        switch ml {
+        case 500:    label = "500ml";     suffix = " — half a liter!"
+        case 1_000:  label = "1 liter";   suffix = " 🥛"
+        case 2_000:  label = "2 liters";  suffix = " — that's dedication!"
+        case 5_000:  label = "5 liters";  suffix = " — incredible!"
+        default:     label = "10 liters"; suffix = " — amazing!"
+        }
+        return [Insight(
+            id: "milestone_pump_volume_\(ml)",
+            emoji: "🥛",
+            title: "Pumped over \(label)!",
+            description: "Your total pumped volume has crossed \(label)\(suffix)",
+            category: .milestone, trend: nil
+        )]
+    }
+
+    // MARK: - Pump trends
+
+    private func pumpTrends(windowDays: Int) -> [Insight] {
+        var out: [Insight] = []
+        if let i = pumpVolumeTrend(windowDays: windowDays) { out.append(i) }
+        return out
+    }
+
+    private func pumpVolumeTrend(windowDays: Int) -> Insight? {
+        let curStart   = Calendar.current.date(byAdding: .day, value: -windowDays,     to: now)!
+        let priorStart = Calendar.current.date(byAdding: .day, value: -2 * windowDays, to: now)!
+        let current = pumpSessions.filter { $0.startTime >= curStart && $0.pumpVolumeMl != nil }
+        let prior   = pumpSessions.filter { $0.startTime >= priorStart && $0.startTime < curStart && $0.pumpVolumeMl != nil }
+        guard current.count >= 3, prior.count >= 3 else { return nil }
+        let cAvg = avgVolumeMl(current)
+        let pAvg = avgVolumeMl(prior)
+        guard cAvg > 0, pAvg > 0 else { return nil }
+        let pct = (Double(cAvg - pAvg) / Double(pAvg)) * 100
+        guard abs(pct) >= 15 else { return nil }
+        let direction: Insight.TrendDirection = pct > 0 ? .up : .down
+        let word = pct > 0 ? "up" : "down"
+        let period = windowDays == 7 ? "week" : "period"
+        return Insight(
+            id: "trend_pump_volume_\(direction == .up ? "up" : "down")",
+            emoji: "🍼",
+            title: "Pump output trend",
+            description: "Output is \(word) \(Int(abs(pct).rounded()))% this \(period) (avg \(cAvg)ml vs \(pAvg)ml).",
+            category: .trend, trend: direction
+        )
+    }
+
+    // MARK: - Pump patterns
+
+    private func pumpPatterns() -> [Insight] {
+        let pool = pumpSessionsInWindow
+        guard pool.count >= 3 else { return [] }
+        var out: [Insight] = []
+        if let i = pumpTimePreferenceInsight(pool)   { out.append(i) }
+        if let i = pumpSidePreferenceInsight(pool)   { out.append(i) }
+        if let i = pumpBestOutputInsight(pool)       { out.append(i) }
+        if let i = pumpFeedRatioInsight()            { out.append(i) }
+        return out
+    }
+
+    private func pumpTimePreferenceInsight(_ pool: [FeedingSession]) -> Insight? {
+        let cal = Calendar.current
+        let morning = pool.filter { cal.component(.hour, from: $0.startTime) < 12 }.count
+        let other   = pool.count - morning
+        let total   = pool.count
+        let mPct = Double(morning) / Double(total)
+        let oPct = Double(other)   / Double(total)
+        let (label, pct) = mPct >= oPct ? ("morning", mPct) : ("afternoon/evening", oPct)
+        guard pct > 0.60 else { return nil }
+        return Insight(
+            id: "pattern_pump_time_of_day",
+            emoji: "🕐",
+            title: "Pump time preference",
+            description: "You usually pump in the \(label) (\(Int((pct * 100).rounded()))% of sessions).",
+            category: .pattern, trend: nil
+        )
+    }
+
+    private func pumpSidePreferenceInsight(_ pool: [FeedingSession]) -> Insight? {
+        let withSide = pool.filter { $0.pumpSide != nil }
+        guard withSide.count >= 3 else { return nil }
+        let total = withSide.count
+        let both  = withSide.filter { $0.pumpSide == .both  }.count
+        let left  = withSide.filter { $0.pumpSide == .left  }.count
+        let right = withSide.filter { $0.pumpSide == .right }.count
+        let (label, count): (String, Int)
+        if both >= left && both >= right { (label, count) = ("both sides", both) }
+        else if left >= right            { (label, count) = ("left only",  left) }
+        else                            { (label, count) = ("right only", right) }
+        let pct = Double(count) / Double(total)
+        guard pct > 0.60 else { return nil }
+        return Insight(
+            id: "pattern_pump_side",
+            emoji: "🤱",
+            title: "Pump side preference",
+            description: "You pump \(label) \(Int((pct * 100).rounded()))% of the time.",
+            category: .pattern, trend: nil
+        )
+    }
+
+    private func pumpBestOutputInsight(_ pool: [FeedingSession]) -> Insight? {
+        let cal = Calendar.current
+        let withVol = pool.filter { $0.pumpVolumeMl != nil }
+        guard withVol.count >= 4 else { return nil }
+        let morning = withVol.filter { cal.component(.hour, from: $0.startTime) < 12 }
+        let other   = withVol.filter { cal.component(.hour, from: $0.startTime) >= 12 }
+        guard morning.count >= 2, other.count >= 2 else { return nil }
+        let mAvg = avgVolumeMl(morning)
+        let oAvg = avgVolumeMl(other)
+        guard mAvg > 0, oAvg > 0 else { return nil }
+        let diff = abs(mAvg - oAvg)
+        guard Double(diff) / Double(max(mAvg, oAvg)) > 0.20 else { return nil }
+        let (bestLabel, bestAvg, otherAvg) = mAvg > oAvg
+            ? ("morning", mAvg, oAvg)
+            : ("afternoon/evening", oAvg, mAvg)
+        return Insight(
+            id: "pattern_pump_best_output",
+            emoji: "📊",
+            title: "Best output window",
+            description: "Your highest output is usually in the \(bestLabel) (avg \(bestAvg)ml vs \(otherAvg)ml).",
+            category: .pattern, trend: nil
+        )
+    }
+
+    private func pumpFeedRatioInsight() -> Insight? {
+        guard let days = filter.windowDays else { return nil }
+        let start  = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
+        let window = sessions.filter { $0.startTime >= start }
+        let breast  = window.filter { $0.feedType == .left || $0.feedType == .right }.count
+        let pump    = window.filter { $0.feedType == .pump   }.count
+        let bottle  = window.filter { $0.feedType == .bottle }.count
+        guard breast > 0, pump >= 3, bottle > 0 else { return nil }
+        let bf = breast == 1 ? "breastfeed" : "breastfeeds"
+        let ps = pump   == 1 ? "pump session" : "pump sessions"
+        let bt = bottle == 1 ? "bottle" : "bottles"
+        return Insight(
+            id: "pattern_pump_feed_ratio",
+            emoji: "📋",
+            title: "Your feeding mix",
+            description: "This period: \(breast) \(bf), \(pump) \(ps), \(bottle) \(bt).",
+            category: .pattern, trend: nil
+        )
+    }
+
     // MARK: - Helpers
 
     private func avgActiveMinutes(_ pool: [FeedingSession]) -> Int {
         guard !pool.isEmpty else { return 0 }
         let total = pool.reduce(0) { $0 + $1.totalActiveMinutes }
         return Int((Double(total) / Double(pool.count)).rounded())
+    }
+
+    private func avgVolumeMl(_ pool: [FeedingSession]) -> Int {
+        let vols = pool.compactMap(\.pumpVolumeMl)
+        guard !vols.isEmpty else { return 0 }
+        return vols.reduce(0, +) / vols.count
     }
 
     private func avgGapHours(_ pool: [FeedingSession]) -> Double {
