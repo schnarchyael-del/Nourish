@@ -62,26 +62,6 @@ struct FeedbackSheet: View {
             .padding(.top, 22)
             .padding(.bottom, 18)
 
-            // Optional reply email
-            HStack(spacing: 10) {
-                Image(systemName: "envelope")
-                    .font(.system(size: 14))
-                    .foregroundStyle(c.muted.opacity(0.6))
-                TextField("Your email for follow-up (optional)", text: $replyEmail)
-                    .font(.nSans(14))
-                    .foregroundStyle(c.ink)
-                    .keyboardType(.emailAddress)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 46)
-            .background(c.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.border, lineWidth: 1))
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-
             // Text input
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 18)
@@ -106,7 +86,27 @@ struct FeedbackSheet: View {
             }
             .frame(minHeight: 170)
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 12)
+
+            // Optional reply email
+            HStack(spacing: 10) {
+                Image(systemName: "envelope")
+                    .font(.system(size: 14))
+                    .foregroundStyle(c.muted.opacity(0.6))
+                TextField("Your email for follow-up (optional)", text: $replyEmail)
+                    .font(.nSans(14))
+                    .foregroundStyle(c.ink)
+                    .keyboardType(.emailAddress)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            .background(c.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.border, lineWidth: 1))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
 
             // Send button
             Button { sendFeedback() } label: {

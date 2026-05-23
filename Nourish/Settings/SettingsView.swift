@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var activeSheet: ActiveSheet? = nil
     @State private var showEmailSignIn = false
     @State private var showFeedback = false
+    @State private var showManual = false
 
     enum ActiveSheet: String, Identifiable {
         case profile, baby, appearance, partner, alarm, reminder, data
@@ -70,6 +71,14 @@ struct SettingsView: View {
                 FeedbackSheet()
                     .environment(\.nourishColors, c)
                     .presentationDetents([.fraction(0.875)])
+                    .presentationDragIndicator(.hidden)
+                    .presentationCornerRadius(28)
+                    .presentationBackground(c.bg)
+            }
+            .sheet(isPresented: $showManual) {
+                HowToUseView()
+                    .environment(\.nourishColors, c)
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.hidden)
                     .presentationCornerRadius(28)
                     .presentationBackground(c.bg)
@@ -166,6 +175,17 @@ struct SettingsView: View {
                     }
 
                     settingsGroup("Support") {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showManual = true
+                        } label: {
+                            settingsNavRow(icon: "📖", label: "How to Use Nourish",
+                                          sub: "Tips, features, and how everything works")
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider().overlay(c.border).padding(.horizontal, 18)
+
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             showFeedback = true
