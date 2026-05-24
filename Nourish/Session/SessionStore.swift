@@ -92,7 +92,7 @@ final class SessionStore {
         rescheduleSessionAlarmForCurrentSide()
 
         // Push live state to widgets and keep the screen awake.
-        SharedFeedSnapshot.setActiveSession(side: side.rawValue, start: sessionStartDate ?? .now)
+        publishActiveSnapshot()
         UIApplication.shared.isIdleTimerDisabled = true
     }
 
@@ -115,6 +115,7 @@ final class SessionStore {
         }
         pauseStartDate = nil
         isPaused = false
+        syncToWallClock()
         persist()
         startTimer()
         publishActiveSnapshot()
@@ -130,8 +131,14 @@ final class SessionStore {
             switchedAtSeconds = elapsedSeconds
         }
         currentSide = side.opposite
-        if isPaused { resume() } else { persist() }
-        // New side starts at 0 — give it a fresh `alarmMinutes` window.
+        // resume() already calls publishActiveSnapshot(); in the non-paused
+        // branch we must call it explicitly so the widget updates immediately.
+        if isPaused {
+            resume()
+        } else {
+            persist()
+            publishActiveSnapshot()
+        }
         rescheduleSessionAlarmForCurrentSide()
     }
 
@@ -216,11 +223,14 @@ final class SessionStore {
         Self.formatMMSS(elapsedSeconds)
     }
 
-    /// Seconds spent on the current side in the CURRENT segment — resets to
-    /// 0 every time the user switches sides. Equals total elapsed when no
-    /// switch has happened yet.
+    /// Total seconds accumulated on the current side, including all previous
+    /// segments on that side plus the current running segment. Resuming a side
+    /// (L→R→L) continues from where that side left off rather than resetting.
     var currentSideSeconds: Int {
-        max(0, elapsedSeconds - currentSideStartedAtElapsed)
+        let segment = max(0, elapsedSeconds - currentSideStartedAtElapsed)
+        guard let side = currentSide else { return segment }
+        let accumulated = side == .left ? leftActiveSeconds : rightActiveSeconds
+        return accumulated + segment
     }
 
     /// Accumulated total seconds on the side the user is NOT currently on,
@@ -357,15 +367,21 @@ final class SessionStore {
         }
     }
 
-    /// Push the current active-session state (including pause) to the widget
-    /// snapshot. Caller must ensure a session is active.
+    /// Push the current active-session state to the widget snapshot.
+    /// Writes the CURRENT side (not start side) and a virtual effective-start
+    /// date that makes the widget's .timer display show this side's total time.
     private func publishActiveSnapshot() {
-        guard let start = sessionStartDate, let side = startSide else { return }
+        guard let sessionStart = sessionStartDate, let side = currentSide else { return }
+        let sideSecs = currentSideSeconds
+        // Virtual start: a date such that (now - sideEffectiveStart) == sideSecs.
+        // Widget uses Text(sideEffectiveStart, style: .timer) for live display.
+        let sideEffectiveStart = Date.now.addingTimeInterval(-TimeInterval(sideSecs))
         SharedFeedSnapshot.setActiveSession(
-            side: side.rawValue,
-            start: start,
+            sessionStart: sessionStart,
+            currentSide: side.rawValue,
+            sideEffectiveStart: sideEffectiveStart,
             pausedAt: pauseStartDate,
-            accumulatedPausedSeconds: accumulatedPausedSeconds
+            pausedSideSeconds: isPaused ? sideSecs : 0
         )
     }
 }

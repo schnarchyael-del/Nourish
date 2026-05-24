@@ -24,26 +24,46 @@ enum SharedFeedSnapshot {
         static let todayLeftMinutes      = "widget.todayLeftMinutes"
         static let todayRightMinutes     = "widget.todayRightMinutes"
         static let isSessionActive       = "widget.isSessionActive"
+        // Session start — used by widget for the 6-hour stale-session guard.
         static let activeSessionStart    = "widget.activeSessionStart"
+        // Current side letter ("left"/"right") — updated on every switch.
         static let activeSessionSide     = "widget.activeSessionSide"
-        static let activePausedAt        = "widget.activeSessionPausedAt"      // 0 = not paused
-        static let activeAccumulatedPause = "widget.activeSessionAccumulatedPause"
+        // Virtual start date for the current side's live timer.
+        // Computed as (now - currentSideSeconds) so Text(..., style:.timer)
+        // shows the correct per-side elapsed time, including accumulated time
+        // from previous segments on this side.
+        static let activeSessionSideStart      = "widget.activeSessionSideStart"
+        // Frozen side-elapsed seconds written only when pausing; cleared on resume.
+        static let activeSessionPausedSideSeconds = "widget.activeSessionPausedSideSeconds"
+        // Pause timestamp (non-zero = paused).
+        static let activePausedAt        = "widget.activeSessionPausedAt"
     }
 
     /// Mark a session as active in the shared snapshot and reload widgets.
-    /// Pause state is included so the widget can freeze its live timer.
+    ///
+    /// - Parameters:
+    ///   - sessionStart: True wall-clock start of the session (used for stale check).
+    ///   - currentSide: The side currently being fed ("left" or "right").
+    ///   - sideEffectiveStart: Virtual start date such that `now − sideEffectiveStart`
+    ///     equals the total accumulated seconds on `currentSide`. Used by the widget's
+    ///     `.timer` style to show per-side elapsed time.
+    ///   - pausedAt: The moment the session was paused, or `nil` if not paused.
+    ///   - pausedSideSeconds: Frozen side-elapsed seconds written when pausing so the
+    ///     widget can show a static readout. Pass 0 when not paused.
     static func setActiveSession(
-        side: String,
-        start: Date,
+        sessionStart: Date,
+        currentSide: String,
+        sideEffectiveStart: Date,
         pausedAt: Date? = nil,
-        accumulatedPausedSeconds: Int = 0
+        pausedSideSeconds: Int = 0
     ) {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
-        defaults.set(true, forKey: Key.isSessionActive)
-        defaults.set(side, forKey: Key.activeSessionSide)
-        defaults.set(start.timeIntervalSince1970, forKey: Key.activeSessionStart)
-        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0, forKey: Key.activePausedAt)
-        defaults.set(accumulatedPausedSeconds, forKey: Key.activeAccumulatedPause)
+        defaults.set(true,                                  forKey: Key.isSessionActive)
+        defaults.set(sessionStart.timeIntervalSince1970,    forKey: Key.activeSessionStart)
+        defaults.set(currentSide,                           forKey: Key.activeSessionSide)
+        defaults.set(sideEffectiveStart.timeIntervalSince1970, forKey: Key.activeSessionSideStart)
+        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0,  forKey: Key.activePausedAt)
+        defaults.set(pausedSideSeconds,                     forKey: Key.activeSessionPausedSideSeconds)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -53,8 +73,9 @@ enum SharedFeedSnapshot {
         defaults.set(false, forKey: Key.isSessionActive)
         defaults.removeObject(forKey: Key.activeSessionStart)
         defaults.removeObject(forKey: Key.activeSessionSide)
+        defaults.removeObject(forKey: Key.activeSessionSideStart)
+        defaults.removeObject(forKey: Key.activeSessionPausedSideSeconds)
         defaults.removeObject(forKey: Key.activePausedAt)
-        defaults.removeObject(forKey: Key.activeAccumulatedPause)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -120,7 +141,8 @@ enum SharedFeedSnapshot {
             Key.lastFeedBottleMl, Key.todaySessionCount, Key.todayTotalMinutes,
             Key.todayLeftMinutes, Key.todayRightMinutes,
             Key.isSessionActive, Key.activeSessionStart, Key.activeSessionSide,
-            Key.activePausedAt, Key.activeAccumulatedPause,
+            Key.activeSessionSideStart, Key.activeSessionPausedSideSeconds,
+            Key.activePausedAt,
         ] {
             defaults.removeObject(forKey: key)
         }

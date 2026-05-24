@@ -16,10 +16,17 @@ struct FeedSnapshot {
     let todayRightMinutes: Int
 
     let isSessionActive: Bool
+    /// True session start — used only for the 6-hour stale-session guard.
     let activeSessionStart: Date?
-    let activeSessionSide: String   // "left" / "right" / ""
+    /// Current side being fed (updated on every switch, not frozen at session start).
+    let activeSessionSide: String
+    /// Virtual start date for this side's live timer.
+    /// `now − activeSessionSideStart` gives total accumulated seconds on the current side.
+    let activeSessionSideStart: Date?
+    /// Pause timestamp; non-nil means the session is currently paused.
     let activeSessionPausedAt: Date?
-    let activeSessionAccumulatedPause: Int
+    /// Frozen side-elapsed seconds at the moment of pause; shown as a static readout.
+    let activeSessionPausedSideSeconds: Int
 
     static let empty = FeedSnapshot(
         lastFeedTime: nil,
@@ -36,8 +43,9 @@ struct FeedSnapshot {
         isSessionActive: false,
         activeSessionStart: nil,
         activeSessionSide: "",
+        activeSessionSideStart: nil,
         activeSessionPausedAt: nil,
-        activeSessionAccumulatedPause: 0
+        activeSessionPausedSideSeconds: 0
     )
 
     static let placeholder = FeedSnapshot(
@@ -55,8 +63,9 @@ struct FeedSnapshot {
         isSessionActive: false,
         activeSessionStart: nil,
         activeSessionSide: "",
+        activeSessionSideStart: nil,
         activeSessionPausedAt: nil,
-        activeSessionAccumulatedPause: 0
+        activeSessionPausedSideSeconds: 0
     )
 
     static let placeholderActive = FeedSnapshot(
@@ -72,19 +81,20 @@ struct FeedSnapshot {
         todayLeftMinutes: 52,
         todayRightMinutes: 40,
         isSessionActive: true,
-        activeSessionStart: Date.now.addingTimeInterval(-3 * 60 - 42),
+        activeSessionStart: Date.now.addingTimeInterval(-8 * 60),
         activeSessionSide: "left",
+        activeSessionSideStart: Date.now.addingTimeInterval(-3 * 60 - 42),
         activeSessionPausedAt: nil,
-        activeSessionAccumulatedPause: 0
+        activeSessionPausedSideSeconds: 0
     )
 
     var hasData: Bool { lastFeedTime != nil }
     var isBreast: Bool { lastFeedType == "breast" }
     var isBottle: Bool { lastFeedType == "bottle" }
 
-    /// True only if the snapshot says a session is active AND the start time
-    /// is recent. Treats stale active flags (force-quit during a session,
-    /// app crash, slow widget reload after end) as "not active" so the
+    /// True only if the snapshot says a session is active AND the session
+    /// start time is recent. Treats stale active flags (force-quit during a
+    /// session, crash, slow widget reload after end) as "not active" so the
     /// widget can never get permanently stuck on "Feeding now".
     var isActuallyActive: Bool {
         guard isSessionActive, let start = activeSessionStart else { return false }
@@ -94,18 +104,14 @@ struct FeedSnapshot {
 
     var isActivePaused: Bool { activeSessionPausedAt != nil }
 
-    /// Start date shifted forward by the time already spent paused, so
-    /// `Text(_, style: .timer)` shows only the time actually spent feeding.
-    var effectiveActiveStart: Date? {
-        guard let start = activeSessionStart else { return nil }
-        return start.addingTimeInterval(TimeInterval(activeSessionAccumulatedPause))
-    }
+    /// The virtual side-start date to use with `Text(..., style: .timer)`.
+    /// `now − effectiveActiveStart` gives the total accumulated time on the
+    /// current side (all segments combined, including any resumed segments).
+    var effectiveActiveStart: Date? { activeSessionSideStart }
 
-    /// Frozen elapsed seconds at the moment the session was paused.
-    var pausedElapsedSeconds: Int {
-        guard let start = activeSessionStart, let pausedAt = activeSessionPausedAt else { return 0 }
-        return max(0, Int(pausedAt.timeIntervalSince(start)) - activeSessionAccumulatedPause)
-    }
+    /// Frozen elapsed seconds for the current side at the moment of pause.
+    /// Used to show a static time readout when the session is paused.
+    var pausedElapsedSeconds: Int { activeSessionPausedSideSeconds }
 }
 
 enum SharedKey {
@@ -125,8 +131,9 @@ enum SharedKey {
     static let isSessionActive       = "widget.isSessionActive"
     static let activeSessionStart    = "widget.activeSessionStart"
     static let activeSessionSide     = "widget.activeSessionSide"
+    static let activeSessionSideStart      = "widget.activeSessionSideStart"
+    static let activeSessionPausedSideSeconds = "widget.activeSessionPausedSideSeconds"
     static let activePausedAt        = "widget.activeSessionPausedAt"
-    static let activeAccumulatedPause = "widget.activeSessionAccumulatedPause"
 }
 
 extension FeedSnapshot {
@@ -140,6 +147,11 @@ extension FeedSnapshot {
 
         let activeStart = (d.object(forKey: SharedKey.activeSessionStart) as? Double)
             .map { Date(timeIntervalSince1970: $0) }
+
+        let sideStartTs = d.double(forKey: SharedKey.activeSessionSideStart)
+        let sideStart: Date? = sideStartTs > 0
+            ? Date(timeIntervalSince1970: sideStartTs)
+            : nil
 
         let pausedAtTs = d.double(forKey: SharedKey.activePausedAt)
         let pausedAt: Date? = pausedAtTs > 0
@@ -161,8 +173,9 @@ extension FeedSnapshot {
             isSessionActive: d.bool(forKey: SharedKey.isSessionActive),
             activeSessionStart: activeStart,
             activeSessionSide: d.string(forKey: SharedKey.activeSessionSide) ?? "",
+            activeSessionSideStart: sideStart,
             activeSessionPausedAt: pausedAt,
-            activeSessionAccumulatedPause: d.integer(forKey: SharedKey.activeAccumulatedPause)
+            activeSessionPausedSideSeconds: d.integer(forKey: SharedKey.activeSessionPausedSideSeconds)
         )
     }
 }
