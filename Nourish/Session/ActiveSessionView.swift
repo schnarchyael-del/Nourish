@@ -141,6 +141,14 @@ struct ActiveSessionView: View {
             // Side switched — re-arm so the new side gets its own X-min window.
             alarmFired = false
         }
+        // Realtime widget→app sync. When the user taps Pause / Switch / End
+        // on a home or lock-screen widget while this view is on-screen, the
+        // widget intent updates shared UserDefaults and Darwin-broadcasts.
+        // We absorb that change immediately so the timer / side label / "ended"
+        // dismiss happen in lockstep with the widget refresh.
+        .onReceive(NotificationCenter.default.publisher(for: WidgetSyncBridge.changed)) { _ in
+            store.absorbWidgetMutations()
+        }
         .overlay {
             if showAlarmModal {
                 AlarmModal(
@@ -517,7 +525,6 @@ struct AlarmModal: View {
                             .datePickerStyle(.compact)
                             .labelsHidden()
                             .tint(c.accentColor(for: side))
-                            .colorScheme(.light)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
                             .frame(height: 50)

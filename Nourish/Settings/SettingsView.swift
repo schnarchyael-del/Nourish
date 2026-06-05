@@ -1334,7 +1334,7 @@ private struct BabyEditView: View {
                                 get: { babyDOB },
                                 set: { babyDOBTimestamp = $0.timeIntervalSince1970 }
                             ), in: ...Date.now, displayedComponents: .date)
-                                .datePickerStyle(.graphical).tint(c.leftAccent).colorScheme(.light)
+                                .datePickerStyle(.graphical).tint(c.leftAccent)
                                 .padding(8).background(c.input)
                                 .clipShape(RoundedRectangle(cornerRadius: 18))
                                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1))

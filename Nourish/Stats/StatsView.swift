@@ -204,10 +204,31 @@ struct StatsView: View {
     private var sleepMinutesPerDay: Int {
         totalSleepMinutes / daysInPeriod
     }
+    private var pumpsPerDay: Double {
+        Double(pumpSessions.count) / Double(daysInPeriod)
+    }
 
     /// "5.8" if < 10, "12" otherwise. Mirrors `InsightsEngine.formatPerDay`.
     private func formatPerDay(_ value: Double) -> String {
         value >= 10 ? "\(Int(value.rounded()))" : String(format: "%.1f", value)
+    }
+
+    /// Lower-case label for the currently-selected period, used in
+    /// phrases like "1 nap this week".
+    private var periodLabel: String {
+        switch selectedTab {
+        case 1: return "week"
+        case 2: return "month"
+        default: return "period"
+        }
+    }
+
+    /// Decision for how to present a low-frequency count in Week/Month.
+    /// `≥ 1/day` → daily average reads naturally; `< 1/day` → fall back to
+    /// the absolute total for the period ("0.2 naps/day" is correct but
+    /// useless; "1 nap this week" is honest and readable).
+    private func showsDailyAverage(forPerDay value: Double) -> Bool {
+        value >= 1.0
     }
 
     private var maxBarValue: Int { max(1, chartBarData.map { $0.count }.max() ?? 1) }
@@ -1338,11 +1359,18 @@ struct StatsView: View {
                                   small: napCount == 1 ? "nap" : "naps")
                     sleepStatCell(big: SleepView.formatHM(totalSleepMinutes),
                                   small: "total")
-                } else {
+                } else if showsDailyAverage(forPerDay: napsPerDay) {
                     sleepStatCell(big: "\(formatPerDay(napsPerDay))/day",
                                   small: "naps/day")
                     sleepStatCell(big: "\(SleepView.formatHM(sleepMinutesPerDay))/day",
                                   small: "sleep/day")
+                } else {
+                    // Less than one nap a day on average — daily fractions
+                    // are noise, just show the actual count + total.
+                    sleepStatCell(big: "\(napCount) \(napCount == 1 ? "nap" : "naps")",
+                                  small: "this \(periodLabel)")
+                    sleepStatCell(big: SleepView.formatHM(totalSleepMinutes),
+                                  small: "total this \(periodLabel)")
                 }
             }
             .padding(.bottom, 10)
@@ -1519,13 +1547,28 @@ struct StatsView: View {
             .padding(.bottom, 7)
 
         HStack(spacing: 8) {
-            pumpStatCell(value: "\(pumpSessions.count)", label: "sessions")
+            pumpCountCell
             if avgPumpVolumeMl > 0 {
                 pumpStatCell(value: "\(avgPumpVolumeMl) ml", label: "avg volume")
             }
             if totalPumpVolumeMl > 0 {
                 pumpStatCell(value: "\(totalPumpVolumeMl) ml", label: "total pumped")
             }
+        }
+    }
+
+    /// Pump count cell — Day shows the raw count, Week/Month switches
+    /// between daily average and "N this week/month" based on frequency.
+    @ViewBuilder
+    private var pumpCountCell: some View {
+        let count = pumpSessions.count
+        if selectedTab == 0 {
+            pumpStatCell(value: "\(count)", label: count == 1 ? "pump" : "pumps")
+        } else if showsDailyAverage(forPerDay: pumpsPerDay) {
+            pumpStatCell(value: "\(formatPerDay(pumpsPerDay))/day", label: "pumps/day")
+        } else {
+            pumpStatCell(value: "\(count) \(count == 1 ? "pump" : "pumps")",
+                         label: "this \(periodLabel)")
         }
     }
 

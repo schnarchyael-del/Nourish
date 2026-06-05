@@ -29,6 +29,10 @@ struct NourishApp: App {
                     NotificationManager.shared.refreshReminder(modelContainer: NourishApp.modelContainer)
                     SharedFeedSnapshot.refresh(modelContainer: NourishApp.modelContainer)
                     WidgetActionDrainer.drainPending(modelContainer: NourishApp.modelContainer)
+                    // Listen for widget-driven snapshot changes so the active
+                    // session screen can sync in real time without waiting
+                    // for a foreground transition.
+                    WidgetSyncBridge.startListening()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     // Drain widget-tap actions every time we come back to the
@@ -37,6 +41,12 @@ struct NourishApp: App {
                     if phase == .active {
                         WidgetActionDrainer.drainPending(modelContainer: NourishApp.modelContainer)
                     }
+                }
+                // Also drain on Darwin-broadcast: covers the case where the
+                // user is already in the foreground when a widget intent
+                // fires (no scenePhase change to react to).
+                .onReceive(NotificationCenter.default.publisher(for: WidgetSyncBridge.changed)) { _ in
+                    WidgetActionDrainer.drainPending(modelContainer: NourishApp.modelContainer)
                 }
         }
         .modelContainer(NourishApp.modelContainer)

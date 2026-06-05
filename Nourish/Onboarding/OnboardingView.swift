@@ -463,7 +463,6 @@ struct OnboardingView: View {
                 DatePicker("", selection: $babyDOB, in: ...Date.now, displayedComponents: .date)
                     .datePickerStyle(.graphical)
                     .tint(c.leftAccent)
-                    .colorScheme(.light)
                     .padding(8)
                     .background(c.input)
                     .clipShape(RoundedRectangle(cornerRadius: 18))

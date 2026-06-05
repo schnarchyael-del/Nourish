@@ -72,16 +72,30 @@ final class SessionStore {
 
     /// Reconcile the in-memory session state with whatever the widget
     /// extension wrote into the shared snapshot while we were backgrounded.
-    /// Specifically: pause-toggle and switch-side actions fire AppIntents
-    /// inside the widget process, which writes the new state to
-    /// `group.com.yael.nourish` without ever waking the main app. Without
-    /// this sync, opening the app would show stale (pre-widget-tap) state.
+    /// Shared UserDefaults is the single source of truth — if it disagrees
+    /// with our in-memory state, we always defer to the shared value
+    /// (widget tap fired last; in-memory state is stale).
+    ///
+    /// Handles all three widget-driven mutations:
+    ///   • End  — shared cleared `isSessionActive` → we cancel() in-memory
+    ///   • Pause/Resume — shared flipped `pausedAt` → we call pause()/resume()
+    ///   • Switch — shared swapped `activeSessionSide` → we call switchSide()
     func absorbWidgetMutations() {
         guard isActive,
               let d = UserDefaults(suiteName: "group.com.yael.nourish")
         else { return }
 
-        // Pause / resume.
+        // 1. End. If the widget cleared the active flag, the queue already
+        //    has an `endFeed` action that the drainer will turn into a
+        //    proper FeedingSession. We just need to scrub in-memory state
+        //    so the app doesn't keep rendering an active session screen.
+        let widgetIsActive = d.bool(forKey: "widget.isSessionActive")
+        if !widgetIsActive {
+            cancel()
+            return
+        }
+
+        // 2. Pause / resume.
         let widgetPausedAt = d.double(forKey: "widget.activeSessionPausedAt")
         let widgetIsPaused = widgetPausedAt > 0
         if widgetIsPaused, !isPaused {
@@ -90,7 +104,7 @@ final class SessionStore {
             resume()
         }
 
-        // Switch side.
+        // 3. Switch side.
         if let raw = d.string(forKey: "widget.activeSessionSide"),
            let widgetSide = FeedSide(rawValue: raw),
            let here = currentSide,

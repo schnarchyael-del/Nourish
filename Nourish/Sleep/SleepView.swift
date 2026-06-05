@@ -84,6 +84,25 @@ struct SleepView: View {
                 tooltips.show(.sleepTab)
             }
         }
+        // Realtime sync — when the widget's EndSleep intent fires while
+        // this view is on-screen, the timer card should immediately flip
+        // to the "awake" state without waiting for a foreground transition.
+        .onReceive(NotificationCenter.default.publisher(for: WidgetSyncBridge.changed)) { _ in
+            absorbWidgetSleepEnd()
+        }
+    }
+
+    /// If the shared snapshot says no sleep is in progress but our local
+    /// `activeSleepStartedAt` flag is still set, the widget just ended the
+    /// nap. Clear the local flag here — the drainer running on next
+    /// foreground will persist the FeedingSession.
+    private func absorbWidgetSleepEnd() {
+        guard activeSleepStartedAt > 0 else { return }
+        let sharedSleeping = UserDefaults(suiteName: "group.com.yael.nourish")?
+            .bool(forKey: "widget.isBabySleeping") ?? false
+        if !sharedSleeping {
+            activeSleepStartedAt = 0
+        }
     }
 
     // MARK: Header
