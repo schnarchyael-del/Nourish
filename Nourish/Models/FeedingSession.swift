@@ -126,10 +126,14 @@ final class FeedingSession {
 
     var durationMinutes: Int { durationSeconds / 60 }
 
-    /// Active feeding time. For pump sessions uses wall-clock (left+right split not applicable).
+    /// Active feeding time. Breast sessions sum left+right minutes; pump and
+    /// bottle sessions use wall-clock duration (left/right split is not
+    /// applicable to either).
     var totalActiveMinutes: Int {
-        if feedType == .pump { return durationMinutes }
-        return leftMinutesResolved + rightMinutesResolved
+        switch feedType {
+        case .pump, .bottle: return durationMinutes
+        case .left, .right:  return leftMinutesResolved + rightMinutesResolved
+        }
     }
 
     var formattedDuration: String {

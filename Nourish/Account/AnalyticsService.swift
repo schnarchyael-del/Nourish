@@ -91,6 +91,18 @@ enum AnalyticsService {
         log("account_created_email")
     }
 
+    static func accountDeletionStarted() {
+        log("account_deletion_started")
+    }
+
+    static func accountDeleted() {
+        log("account_deleted")
+    }
+
+    static func accountDeletionFailed(reason: String) {
+        log("account_deletion_failed", ["reason": reason])
+    }
+
     // MARK: Feedback
 
     static func feedbackOpened() { log("feedback_opened") }

@@ -6,7 +6,6 @@ struct ContentView: View {
     @AppStorage("accentVariant")          private var accentVariant          = "terra"
     @AppStorage("rightAccentVariant")     private var rightAccentVariant     = "blue"
     @AppStorage("darkActiveScreen")       private var darkActiveScreen       = true
-    @AppStorage("showEncouragements")     private var showEncouragements     = true
     @AppStorage("appTheme")               private var appThemeRaw            = AppTheme.system.rawValue
 
     @Environment(\.colorScheme) private var systemColorScheme
@@ -116,8 +115,7 @@ struct ContentView: View {
         } else if sessionStore.isActive {
             ActiveSessionView(
                 store: sessionStore,
-                darkMode: darkActiveScreen,
-                showEncouragements: showEncouragements
+                darkMode: darkActiveScreen
             )
             .transition(Self.tabTransition)
 

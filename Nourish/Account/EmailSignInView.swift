@@ -28,10 +28,13 @@ struct EmailSignInView: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    modePicker
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+
                     Text(isCreate ? "Create your account" : "Welcome back")
                         .font(.nSerif(28))
                         .foregroundStyle(c.ink)
-                        .padding(.top, 8)
 
                     Text(isCreate
                          ? "Set up an account to back up your sessions to the cloud."
@@ -112,6 +115,23 @@ struct EmailSignInView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .background(c.bg.ignoresSafeArea())
+    }
+
+    // MARK: Mode picker — primary "Sign In vs Create Account" switch.
+    // (A secondary text link at the bottom of the form mirrors this for
+    // users who prefer reading their way to it.)
+
+    private var modePicker: some View {
+        Picker("Mode", selection: $mode) {
+            Text("Sign In").tag(Mode.signIn)
+            Text("Create Account").tag(Mode.createAccount)
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: mode) { _, _ in
+            auth.errorMessage = nil
+            resetSent = false
+            confirmPassword = ""
+        }
     }
 
     // MARK: Header

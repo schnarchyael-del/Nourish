@@ -105,7 +105,9 @@ final class TooltipManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    /// Dismiss the current tooltip and mark it as seen.
+    /// Dismiss the current tooltip and mark it as seen. Does NOT auto-advance
+    /// — backdrop tap means "I'm done with tooltips for now". Sequenced
+    /// tooltips advance only when the user explicitly taps the bubble / arrow.
     func dismiss() {
         pendingShow?.cancel()
         pendingShow = nil
@@ -276,6 +278,14 @@ private struct TooltipPresenter: View {
         return min(max(-maxShift, raw), maxShift)
     }
 
+    private func handleAdvanceOrDismiss(for id: TooltipID) {
+        if let next = id.next {
+            manager.advance(to: next)
+        } else {
+            manager.dismiss()
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             // Darkened backdrop. Tap dismisses (acts like the X). The dim
@@ -292,13 +302,7 @@ private struct TooltipPresenter: View {
                 arrow: arrowDirection,
                 arrowOffsetX: arrowOffsetX,
                 buttonKind: id.next == nil ? .close : .next,
-                onButtonTap: {
-                    if let next = id.next {
-                        manager.advance(to: next)
-                    } else {
-                        manager.dismiss()
-                    }
-                }
+                onButtonTap: { handleAdvanceOrDismiss(for: id) }
             )
             .background(
                 GeometryReader { g in
@@ -307,10 +311,11 @@ private struct TooltipPresenter: View {
                         .onChange(of: g.size) { _, new in bubbleSize = new }
                 }
             )
-            // Block taps on the bubble itself so users can read without
-            // accidentally dismissing.
+            // Tapping the bubble itself advances (or dismisses if no next).
+            // The discrete button inside is a visual affordance for the same
+            // action — both routes go through handleAdvanceOrDismiss.
             .contentShape(Rectangle())
-            .onTapGesture { }
+            .onTapGesture { handleAdvanceOrDismiss(for: id) }
             .opacity(bubbleSize == .zero ? 0 : 1)
             .offset(x: resolvedX, y: resolvedY)
             .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))

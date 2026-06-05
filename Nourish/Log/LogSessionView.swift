@@ -19,6 +19,7 @@ struct LogSessionView: View {
     @State private var leftDurationMins: Int
     @State private var rightDurationMins: Int
     @State private var bottleAmountMl: Int
+    @State private var bottleContentType: BottleContentType?
     @State private var bottleDurationMins: Int
     @State private var pumpSide: PumpSide
     @State private var pumpLeftDurationMins: Int
@@ -49,6 +50,7 @@ struct LogSessionView: View {
             _leftDurationMins   = State(initialValue: s.leftDurationMins ?? 0)
             _rightDurationMins  = State(initialValue: s.rightDurationMins ?? 0)
             _bottleAmountMl     = State(initialValue: s.bottleAmountMl ?? 120)
+            _bottleContentType  = State(initialValue: s.bottleContentType)
             _bottleDurationMins = State(initialValue: {
                 guard s.feedType == .bottle, let end = s.endTime else { return 0 }
                 return max(0, Int(end.timeIntervalSince(s.startTime) / 60))
@@ -67,6 +69,7 @@ struct LogSessionView: View {
             _leftDurationMins   = State(initialValue: 5)
             _rightDurationMins  = State(initialValue: 5)
             _bottleAmountMl     = State(initialValue: 120)
+            _bottleContentType  = State(initialValue: nil)
             _bottleDurationMins = State(initialValue: 15)
             _pumpSide              = State(initialValue: .both)
             _pumpLeftDurationMins  = State(initialValue: 15)
@@ -97,7 +100,7 @@ struct LogSessionView: View {
                     startTimeSection
                     notesSection
                     if showDurationError {
-                        Text("Add at least 1 min to save this session 🌸")
+                        Text(validationErrorText)
                             .font(.nSans(13).italic())
                             .foregroundStyle(c.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,6 +212,7 @@ struct LogSessionView: View {
             startingSideSection
             breastDurationSection
         case .bottle:
+            bottleContentSection
             bottleVolumeSection
             bottleDurationSection
         case .pump:
@@ -266,6 +270,44 @@ struct LogSessionView: View {
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.border, lineWidth: 1))
         }
         .padding(.bottom, 18)
+    }
+
+    // MARK: Bottle content (formula vs breast milk)
+
+    private var bottleContentSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Bottle contents")
+            HStack(spacing: 10) {
+                ForEach(BottleContentType.allCases, id: \.rawValue) { type in
+                    bottleContentButton(type)
+                }
+            }
+        }
+        .padding(.bottom, 18)
+    }
+
+    private func bottleContentButton(_ type: BottleContentType) -> some View {
+        let isSelected = bottleContentType == type
+        return Button {
+            bottleContentType = type
+            showDurationError = false
+        } label: {
+            HStack(spacing: 6) {
+                Text(type.icon).font(.nSans(15))
+                Text(type.displayName)
+                    .font(.nSans(15, weight: .bold))
+                    .foregroundStyle(isSelected ? c.bottleAccent : c.muted)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(isSelected ? c.bottleBg : c.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(
+                isSelected ? c.bottleAccent.opacity(0.38) : c.border,
+                lineWidth: 1.5
+            ))
+        }
+        .buttonStyle(ScaleButtonStyle())
     }
 
     // MARK: Bottle volume
@@ -490,6 +532,13 @@ struct LogSessionView: View {
         .padding(.top, 6)
     }
 
+    private var validationErrorText: String {
+        if sessionCategory == .bottle && bottleContentType == nil {
+            return "Pick Formula or Breast milk to save this session 🍼"
+        }
+        return "Add at least 1 min to save this session 🌸"
+    }
+
     private func saveSession() {
         switch sessionCategory {
         case .breast:
@@ -506,7 +555,10 @@ struct LogSessionView: View {
                 return
             }
         case .bottle:
-            break
+            if bottleContentType == nil {
+                withAnimation { showDurationError = true }
+                return
+            }
         }
 
         let target: FeedingSession
@@ -526,7 +578,7 @@ struct LogSessionView: View {
                 editing.pumpVolumeMl      = nil
             case .bottle:
                 editing.feedType          = .bottle
-                editing.bottleContentType = nil
+                editing.bottleContentType = bottleContentType
                 editing.bottleAmountMl    = bottleAmountMl
                 editing.endTime           = bottleDurationMins > 0 ? startTime.addingTimeInterval(TimeInterval(bottleDurationMins * 60)) : nil
                 editing.leftDurationMins  = nil
@@ -566,6 +618,7 @@ struct LogSessionView: View {
                     startTime: startTime,
                     feedType: .bottle,
                     endTime: endTime,
+                    bottleContentType: bottleContentType,
                     bottleAmountMl: bottleAmountMl,
                     notes: notes.isEmpty ? nil : notes
                 )

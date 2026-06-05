@@ -103,7 +103,30 @@ final class AuthManager: NSObject, ObservableObject {
             AnalyticsService.signOut()
         } catch {
             errorMessage = error.localizedDescription
+            return
         }
+        // Sign-out should leave the device in a clean "not signed in" state.
+        // Without this, the home screen keeps showing the previous account's
+        // sessions and baby profile until app restart.
+        // Cloud data stays safe — listeners on next sign-in repopulate it.
+        Self.clearAccountScopedAppStorageOnSignOut()
+        Task {
+            await Task.yield()  // let auth-state listeners detach Firestore listeners first
+            await FirestoreService.shared.wipeAllLocalData()
+        }
+    }
+
+    /// Profile + onboarding keys to clear when *signing out* (not deleting).
+    /// Theme + notification preferences are device-level and preserved.
+    private static func clearAccountScopedAppStorageOnSignOut() {
+        let d = UserDefaults.standard
+        let keys = [
+            "userName", "babyName", "babyDOBTimestamp", "babyGender",
+            "partnerName",
+            "hasCompletedOnboarding",
+            "lastSyncedFirebaseUid",
+        ]
+        for k in keys { d.removeObject(forKey: k) }
     }
 
     // MARK: Email + password
@@ -117,7 +140,7 @@ final class AuthManager: NSObject, ObservableObject {
             AnalyticsService.signInEmail()
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyAuthError(error)
             return false
         }
     }
@@ -131,7 +154,7 @@ final class AuthManager: NSObject, ObservableObject {
             AnalyticsService.accountCreatedEmail()
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyAuthError(error)
             return false
         }
     }
@@ -142,9 +165,169 @@ final class AuthManager: NSObject, ObservableObject {
             try await Auth.auth().sendPasswordReset(withEmail: email)
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyAuthError(error)
             return false
         }
+    }
+
+    /// Translate Firebase Auth errors to short, action-oriented messages.
+    /// Anything we don't recognize falls through to Firebase's text.
+    static func friendlyAuthError(_ error: Error) -> String {
+        let nsError = error as NSError
+        guard nsError.domain == AuthErrorDomain else {
+            return error.localizedDescription
+        }
+        switch nsError.code {
+        case AuthErrorCode.invalidEmail.rawValue:
+            return "That email doesn't look right."
+        case AuthErrorCode.wrongPassword.rawValue,
+             AuthErrorCode.invalidCredential.rawValue:
+            return "Wrong email or password. Try again or tap Forgot Password."
+        case AuthErrorCode.userNotFound.rawValue:
+            return "No account with this email. Tap \"Create Account\" above to sign up."
+        case AuthErrorCode.emailAlreadyInUse.rawValue:
+            return "An account already exists for this email. Tap \"Sign In\" above to continue."
+        case AuthErrorCode.weakPassword.rawValue:
+            return "Password is too short — use at least 6 characters."
+        case AuthErrorCode.networkError.rawValue:
+            return "No internet connection. Check your network and try again."
+        case AuthErrorCode.tooManyRequests.rawValue:
+            return "Too many attempts. Wait a moment, then try again."
+        case AuthErrorCode.userDisabled.rawValue:
+            return "This account has been disabled. Contact support."
+        default:
+            return error.localizedDescription
+        }
+    }
+
+    // MARK: Delete account
+
+    enum AccountProvider: String {
+        case apple = "apple.com"
+        case password = "password"
+        case other = ""
+    }
+
+    enum AccountDeletionError: LocalizedError {
+        case notSignedIn
+        case reauthenticationRequired(AccountProvider)
+        case other(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notSignedIn:                  return "You're not signed in."
+            case .reauthenticationRequired:     return "For security, please sign in again before deleting your account."
+            case .other(let message):           return message
+            }
+        }
+    }
+
+    /// Provider used by the current Firebase user (Apple, password, etc.).
+    var currentProvider: AccountProvider {
+        guard let id = currentUser?.providerData.first?.providerID else { return .other }
+        return AccountProvider(rawValue: id) ?? .other
+    }
+
+    /// Wipes all cloud + local data for the current user and deletes their
+    /// Firebase Auth account. On `requiresRecentLogin`, throws
+    /// `.reauthenticationRequired` — caller should reauthenticate and retry;
+    /// the wipe is idempotent.
+    func deleteAccount() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw AccountDeletionError.notSignedIn
+        }
+        let uid = user.uid
+
+        AnalyticsService.accountDeletionStarted()
+        isWorking = true
+        defer { isWorking = false }
+
+        // Wipe cloud data first (while still authenticated).
+        try await FirestoreService.shared.wipeFirestoreAccount(uid: uid)
+
+        // Now delete the auth user. This is the step that may demand a
+        // recent login.
+        do {
+            try await user.delete()
+        } catch let error as NSError {
+            if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
+                AnalyticsService.accountDeletionFailed(reason: "requires_recent_login")
+                throw AccountDeletionError.reauthenticationRequired(currentProvider)
+            }
+            AnalyticsService.accountDeletionFailed(reason: error.localizedDescription)
+            throw AccountDeletionError.other(error.localizedDescription)
+        }
+
+        // Local wipe + reset only after the auth account is gone.
+        await FirestoreService.shared.wipeAllLocalData()
+        Self.clearAppStorageForAccountDeletion()
+
+        AnalyticsService.accountDeleted()
+    }
+
+    /// Reauthenticate with Apple, then run the account deletion to completion.
+    /// Used after `deleteAccount()` throws `.reauthenticationRequired(.apple)`.
+    func reauthenticateWithAppleAndDelete(_ result: Result<ASAuthorization, Error>) async throws {
+        switch result {
+        case .failure(let error):
+            if let asError = error as? ASAuthorizationError, asError.code == .canceled {
+                throw AccountDeletionError.other("Sign-in cancelled.")
+            }
+            throw AccountDeletionError.other(error.localizedDescription)
+
+        case .success(let authorization):
+            guard
+                let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                let nonce = currentNonce,
+                let tokenData = credential.identityToken,
+                let token = String(data: tokenData, encoding: .utf8),
+                let user = Auth.auth().currentUser
+            else {
+                throw AccountDeletionError.other("Couldn't read the Apple credential.")
+            }
+            let firebaseCredential = OAuthProvider.appleCredential(
+                withIDToken: token, rawNonce: nonce, fullName: credential.fullName
+            )
+            do {
+                _ = try await user.reauthenticate(with: firebaseCredential)
+            } catch {
+                throw AccountDeletionError.other(error.localizedDescription)
+            }
+            try await deleteAccount()
+        }
+    }
+
+    /// Reauthenticate with email + password, then run the account deletion.
+    /// Used after `deleteAccount()` throws `.reauthenticationRequired(.password)`.
+    func reauthenticateWithEmailAndDelete(password: String) async throws {
+        guard let user = Auth.auth().currentUser, let email = user.email else {
+            throw AccountDeletionError.notSignedIn
+        }
+        let credential = EmailAuthProvider.credential(withEmail: email, password: password)
+        do {
+            _ = try await user.reauthenticate(with: credential)
+        } catch {
+            throw AccountDeletionError.other(error.localizedDescription)
+        }
+        try await deleteAccount()
+    }
+
+    /// Clears every @AppStorage key the app uses so the next launch is
+    /// indistinguishable from a fresh install — sends the user back to
+    /// onboarding and removes baby/profile data.
+    private static func clearAppStorageForAccountDeletion() {
+        let d = UserDefaults.standard
+        let keys = [
+            "userName", "babyName", "babyDOBTimestamp", "babyGender",
+            "partnerName", "accentVariant", "rightAccentVariant", "appTheme",
+            "alarmEnabled", "alarmMinutes",
+            "reminderEnabled", "reminderHours",
+            "partnerActivityNotif",
+            "darkActiveScreen", "showEncouragements",
+            "hasCompletedOnboarding", "hasRequestedNotifPermission",
+            "lastSyncedFirebaseUid",
+        ]
+        for key in keys { d.removeObject(forKey: key) }
     }
 
     // MARK: Nonce

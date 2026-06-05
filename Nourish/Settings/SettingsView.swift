@@ -24,6 +24,9 @@ struct SettingsView: View {
     @State private var showEmailSignIn = false
     @State private var showFeedback = false
     @State private var showManual = false
+    @State private var showDeleteAccountAlert = false
+    @State private var showDeleteAccountSheet = false
+    @State private var showSignOutAlert = false
 
     enum ActiveSheet: String, Identifiable {
         case profile, baby, appearance, partner, alarm, reminder, data
@@ -82,6 +85,28 @@ struct SettingsView: View {
                     .presentationDragIndicator(.hidden)
                     .presentationCornerRadius(28)
                     .presentationBackground(c.bg)
+            }
+            .sheet(isPresented: $showDeleteAccountSheet) {
+                DeleteAccountView()
+                    .environment(\.nourishColors, c)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.hidden)
+                    .presentationCornerRadius(28)
+                    .presentationBackground(c.bg)
+            }
+            .alert("Delete Account?", isPresented: $showDeleteAccountAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete Account", role: .destructive) {
+                    showDeleteAccountSheet = true
+                }
+            } message: {
+                Text("This will permanently delete your account and all your data including feeding sessions, pump sessions, baby profile, and partner sharing. This cannot be undone.")
+            }
+            .alert("Sign Out?", isPresented: $showSignOutAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Sign Out", role: .destructive) { auth.signOut() }
+            } message: {
+                Text("Your data stays safe in the cloud, but this device's sessions and baby profile will be cleared. Sign back in anytime to restore them.")
             }
             .alert(
                 "Replace local data?",
@@ -195,12 +220,34 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    if auth.isSignedIn {
+                        deleteAccountButton
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
             }
         }
         .background(c.bg)
+    }
+
+    private var deleteAccountButton: some View {
+        HStack {
+            Spacer()
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showDeleteAccountAlert = true
+            } label: {
+                Text("Delete Account")
+                    .font(.nSans(13))
+                    .foregroundStyle(c.muted)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 4)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 6)
     }
 
     // MARK: Account section
@@ -232,7 +279,7 @@ struct SettingsView: View {
             if auth.isSignedIn {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    auth.signOut()
+                    showSignOutAlert = true
                 } label: {
                     Text("Sign Out")
                         .font(.nSans(13))
@@ -493,7 +540,6 @@ private struct AppearanceSubView: View {
     @AppStorage("accentVariant")      private var accentVariant      = "terra"
     @AppStorage("rightAccentVariant") private var rightAccentVariant = "blue"
     @AppStorage("darkActiveScreen")   private var darkActiveScreen   = true
-    @AppStorage("showEncouragements") private var showEncouragements = true
     @AppStorage("appTheme")           private var appThemeRaw        = AppTheme.system.rawValue
 
     private var appTheme: Binding<AppTheme> {
@@ -557,20 +603,6 @@ private struct AppearanceSubView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             Toggle("", isOn: $darkActiveScreen)
-                                .toggleStyle(NourishToggleStyle(colors: c)).labelsHidden()
-                        }
-                        .padding(.horizontal, 18).padding(.vertical, 14)
-
-                        Divider().overlay(c.border).padding(.horizontal, 18)
-
-                        HStack(spacing: 14) {
-                            Text("✨").font(.nSans(19))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Encouragements").font(.nSans(15, weight: .semibold)).foregroundStyle(c.ink)
-                                Text("Affirmations during sessions").font(.nSans(12)).foregroundStyle(c.muted)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Toggle("", isOn: $showEncouragements)
                                 .toggleStyle(NourishToggleStyle(colors: c)).labelsHidden()
                         }
                         .padding(.horizontal, 18).padding(.vertical, 14)

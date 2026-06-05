@@ -26,6 +26,7 @@ struct OnboardingView: View {
 
     @State private var showDOBPicker = false
     @State private var showEmailSignIn = false
+    @State private var didFinish = false
     @FocusState private var focus: OnboardingField?
 
     // MARK: Step ids — order is: welcome → partner → baby → done
@@ -53,8 +54,42 @@ struct OnboardingView: View {
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn && step == 0 {
                 showEmailSignIn = false
-                withAnimation { step = Step.partner.rawValue }
+                Task { await postSignInRouting() }
             }
+        }
+        .onChange(of: family.familyId) { _, fid in
+            // Safety net for slow networks: if a family loads after the user
+            // has already advanced past welcome, jump straight to home so
+            // they don't re-enter data the cloud already has.
+            if fid != nil && step != 0 && !didFinish {
+                finishOnboarding(skipProfileWrite: true)
+            }
+        }
+        .onAppear {
+            // Cover the "already signed in on launch" case — Firebase persists
+            // sessions across launches, so the welcome step's auth gate would
+            // sit there forever (no state transition for .onChange to fire).
+            if auth.isSignedIn && step == 0 {
+                Task { await postSignInRouting() }
+            }
+        }
+    }
+
+    /// After a sign-in (fresh or restored), wait briefly for FamilyService to
+    /// discover an existing family in Firestore. If one exists, skip the rest
+    /// of onboarding entirely — the partner profile + sessions will populate
+    /// automatically through listeners. Otherwise, continue to the partner step.
+    @MainActor
+    private func postSignInRouting() async {
+        for _ in 0..<20 {
+            if family.familyId != nil { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        if didFinish { return }
+        if family.familyId != nil {
+            finishOnboarding(skipProfileWrite: true)
+        } else if step == 0 {
+            withAnimation { step = Step.partner.rawValue }
         }
     }
 
@@ -195,17 +230,6 @@ struct OnboardingView: View {
                     withAnimation { step = Step.baby.rawValue }
                 }
                 .padding(.bottom, 10)
-
-                Button("Skip — I'll add a partner later") {
-                    focus = nil
-                    withAnimation { step = Step.baby.rawValue }
-                }
-                .font(.nSans(13))
-                .foregroundStyle(c.muted)
-                .underline()
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 6)
             }
             .padding(.horizontal, 26)
             .padding(.top, 58 + 14)
@@ -457,6 +481,8 @@ struct OnboardingView: View {
     /// When `skipProfileWrite` is true, the partner's profile is the source of
     /// truth — we leave UserDefaults alone so the listener fills it in.
     private func finishOnboarding(skipProfileWrite: Bool) {
+        guard !didFinish else { return }
+        didFinish = true
         focus = nil
 
         if !skipProfileWrite {

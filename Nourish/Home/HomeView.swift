@@ -4,6 +4,7 @@ import SwiftData
 struct HomeView: View {
     @Environment(\.nourishColors) private var c
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var tooltips: TooltipManager
 
     let store: SessionStore
@@ -18,6 +19,9 @@ struct HomeView: View {
     @State private var avatarTapCount    = 0
     @State private var avatarResetTask: DispatchWorkItem? = nil
     @State private var didInitialEvaluate = false
+    /// Cached count of consecutive recent days with at least one feed. Only
+    /// surfaced when >= 5 so we never show a "0 day streak" or empty state.
+    @State private var streakDays: Int = 0
 
     private var lastFeed: FeedingSession? { sessions.first(where: { $0.feedType != .pump }) }
 
@@ -76,6 +80,52 @@ struct HomeView: View {
                 }
             }
         }
+        .task { recomputeStreak() }
+        .onChange(of: sessions.count)       { _, _ in recomputeStreak() }
+        .onChange(of: sessions.first?.id)   { _, _ in recomputeStreak() }
+        .onChange(of: scenePhase) { _, phase in
+            // Re-evaluate on foreground so the noon cutoff catches up after
+            // the app has been backgrounded across the boundary.
+            if phase == .active { recomputeStreak() }
+        }
+    }
+
+    /// Counts consecutive days, ending at today, that have at least one
+    /// completed breast or bottle feed. Pump sessions are excluded.
+    ///
+    /// Noon grace: before local noon, if the user hasn't fed yet today we
+    /// anchor the count to yesterday instead of today — so the badge doesn't
+    /// blink off every morning before the first AM feed. After noon, today
+    /// is required (the user's had half a day to log something).
+    ///
+    /// Cheap (O(sessions)) but cached in @State so it only re-runs when
+    /// sessions actually change or the app foregrounds.
+    private func recomputeStreak() {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: .now)
+        let hour = cal.component(.hour, from: .now)
+
+        var feedDays: Set<Date> = []
+        for session in sessions where session.feedType != .pump {
+            feedDays.insert(cal.startOfDay(for: session.startTime))
+        }
+
+        var cursor = today
+        if hour < 12 && !feedDays.contains(today) {
+            guard let yesterday = cal.date(byAdding: .day, value: -1, to: today) else {
+                streakDays = 0
+                return
+            }
+            cursor = yesterday
+        }
+
+        var streak = 0
+        while feedDays.contains(cursor) {
+            streak += 1
+            guard let prev = cal.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = prev
+        }
+        streakDays = streak
     }
 
     private func evaluateTooltips() {
@@ -117,6 +167,14 @@ struct HomeView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                if streakDays >= 5 {
+                    Text("🔥 \(streakDays) day streak")
+                        .font(.nSans(13))
+                        .foregroundStyle(c.muted)
+                        .padding(.top, 2)
+                        .transition(.opacity)
+                }
             }
 
             Spacer()

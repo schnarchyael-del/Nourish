@@ -263,58 +263,68 @@ struct PumpSessionView: View {
             notesField
                 .padding(.horizontal, 24)
 
-            Spacer()
+            Spacer(minLength: 24)
 
-            // Action buttons
-            VStack(spacing: 10) {
-                // Pause/Resume
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    store.isPaused ? store.resume() : store.pause()
-                } label: {
-                    HStack(spacing: 10) {
-                        Text(store.isPaused ? "▶" : "⏸")
-                            .font(.nSans(17))
-                        Text(store.isPaused ? "Resume timer" : "Pause timer")
-                            .font(.nSans(16, weight: .semibold))
-                    }
-                    .foregroundStyle(textColor)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(ghostBg)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(ghostBorder, lineWidth: 1))
-                }
-                .buttonStyle(ScaleButtonStyle())
+            // Primary action — big filled Save in the visual centre of the
+            // lower half of the screen. Hierarchy mirrors ActiveSessionView:
+            // one filled primary, outline secondary, generous gap.
+            primarySaveButton
+                .padding(.horizontal, 24)
+                .padding(.bottom, 44)
 
-                // Save
-                Button {
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    saveSession()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "drop.fill")
-                            .font(.nSans(17))
-                        Text("Save session")
-                            .font(.nSans(18, weight: .bold))
-                    }
-                    .foregroundStyle(darkMode ? Color(hex: "6FBAAD") : .white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 64)
-                    .background(darkMode ? c.pumpAccent.opacity(0.15) : c.pumpAccent)
-                    .clipShape(Capsule())
-                    .overlay(
-                        darkMode
-                            ? AnyView(Capsule().stroke(c.pumpAccent.opacity(0.38), lineWidth: 1))
-                            : AnyView(EmptyView())
-                    )
-                    .shadow(color: darkMode ? .clear : c.pumpAccent.opacity(0.32), radius: 10, y: 4)
-                }
-                .buttonStyle(ScaleButtonStyle(scale: 0.97))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 14)
+            // Secondary: pause/resume. Outline, neutral text, smaller.
+            // Discarding still lives in the X at the top so users don't
+            // accidentally lose a session while reaching for Pause.
+            secondaryPauseButton
+                .padding(.horizontal, 24)
+                .padding(.bottom, 22)
         }
+    }
+
+    private var primarySaveButton: some View {
+        Button {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            saveSession()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "drop.fill")
+                    .font(.nSans(18, weight: .bold))
+                Text("Save session")
+                    .font(.nSans(18, weight: .bold))
+            }
+            .foregroundStyle(darkMode ? Color(hex: "6FBAAD") : .white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 68)
+            .background(darkMode ? c.pumpAccent.opacity(0.18) : c.pumpAccent)
+            .clipShape(Capsule())
+            .overlay(
+                darkMode
+                    ? AnyView(Capsule().stroke(c.pumpAccent.opacity(0.42), lineWidth: 1))
+                    : AnyView(EmptyView())
+            )
+            .shadow(color: darkMode ? .clear : c.pumpAccent.opacity(0.32), radius: 14, y: 6)
+        }
+        .buttonStyle(ScaleButtonStyle(scale: 0.97))
+    }
+
+    private var secondaryPauseButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            store.isPaused ? store.resume() : store.pause()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: store.isPaused ? "play.fill" : "pause.fill")
+                    .font(.nSans(13, weight: .semibold))
+                Text(store.isPaused ? "Resume" : "Pause")
+                    .font(.nSans(15, weight: .semibold))
+            }
+            .foregroundStyle(textColor.opacity(0.75))
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .overlay(Capsule().stroke(ghostBorder, lineWidth: 1.5))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(ScaleButtonStyle())
     }
 
     // MARK: Volume card
@@ -422,10 +432,15 @@ struct PumpSessionView: View {
                 .font(.nSans(14))
                 .foregroundStyle(labelColor)
 
-            TextField("Add a note...", text: $notes)
-                .font(.nSans(14))
-                .foregroundStyle(textColor)
-                .tint(c.pumpAccent)
+            TextField(
+                "",
+                text: $notes,
+                prompt: Text("Add a note")
+                    .foregroundColor(darkMode ? .white.opacity(0.55) : c.muted)
+            )
+            .font(.nSans(14))
+            .foregroundStyle(textColor)
+            .tint(c.pumpAccent)
         }
         .padding(.horizontal, 14)
         .frame(height: 44)

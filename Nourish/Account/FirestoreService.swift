@@ -107,6 +107,13 @@ final class FirestoreService: ObservableObject {
     // MARK: Local cleanup
 
     private func wipeLocalSessions() async {
+        await wipeAllLocalData()
+    }
+
+    /// Public entry point for account deletion: empties SwiftData (all feeding
+    /// AND pump sessions, since both are `FeedingSession`) and clears the
+    /// widget's shared UserDefaults.
+    func wipeAllLocalData() async {
         guard let container = modelContainer else { return }
         let context = ModelContext(container)
         if let sessions = try? context.fetch(FetchDescriptor<FeedingSession>()) {
@@ -114,5 +121,56 @@ final class FirestoreService: ObservableObject {
             try? context.save()
         }
         SharedFeedSnapshot.clear()
+    }
+
+    // MARK: Account deletion
+
+    /// Tear down all cloud data owned by this user, then drop local sync state.
+    /// - Deletes every session + the baby profile in the user's family.
+    /// - If they're the only family member, deletes the family root doc too.
+    /// - If a partner is still in the family, just removes this user from
+    ///   `memberUids` so the partner's data survives.
+    /// - Deletes the `users/{uid}` document.
+    ///
+    /// Must be called while the user is still authenticated (Firestore rules
+    /// require it). Safe to re-run if a later step fails — every delete is
+    /// idempotent.
+    func wipeFirestoreAccount(uid: String) async throws {
+        let db = Firestore.firestore()
+        let userRef = db.collection("users").document(uid)
+
+        let userSnap = try? await userRef.getDocument()
+        let familyId = userSnap?.data()?["familyId"] as? String
+
+        if let fid = familyId, !fid.isEmpty {
+            let familyRef = db.collection("families").document(fid)
+            let familySnap = try? await familyRef.getDocument()
+            let memberUids = (familySnap?.data()?["memberUids"] as? [String]) ?? []
+            let othersRemain = memberUids.contains { $0 != uid }
+
+            if othersRemain {
+                // Partner still using this family — just remove ourselves.
+                try? await familyRef.updateData([
+                    "memberUids": FieldValue.arrayRemove([uid]),
+                ])
+            } else {
+                // Sole member — nuke everything in the family.
+                let sessionsSnap = try? await familyRef.collection("sessions").getDocuments()
+                for doc in sessionsSnap?.documents ?? [] {
+                    try? await doc.reference.delete()
+                }
+                try? await familyRef.collection("profile").document("main").delete()
+                try? await familyRef.delete()
+            }
+        }
+
+        try? await userRef.delete()
+
+        // Drop local sync marker so the next signed-in user doesn't trigger
+        // the "replace local data?" prompt against a uid that no longer exists.
+        UserDefaults.standard.removeObject(forKey: lastUserKey)
+
+        // Detach Firestore listeners.
+        FamilyService.shared.handleSignOut()
     }
 }

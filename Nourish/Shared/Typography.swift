@@ -1,13 +1,24 @@
 import SwiftUI
 import CoreText
+import UIKit
 
 // MARK: - NourishFont
 
 enum NourishFont {
+    /// Designs are baselined for iPhone Pro Max (430pt). Narrower screens
+    /// (iPhone 15 = 393pt, SE = 375pt) scale fonts down proportionally so
+    /// text doesn't crowd the layout. Computed once at first access.
+    static let screenScale: CGFloat = {
+        let baselineWidth: CGFloat = 430
+        let minScale: CGFloat = 0.86
+        let width = UIScreen.main.bounds.width
+        return max(minScale, min(1.0, width / baselineWidth))
+    }()
+
     static func serif(_ size: CGFloat, italic: Bool = false) -> Font {
         .custom(
             italic ? "DMSerifDisplay-Italic" : "DMSerifDisplay-Regular",
-            size: size,
+            size: size * screenScale,
             relativeTo: .title
         )
     }
@@ -22,7 +33,7 @@ enum NourishFont {
         case .heavy, .black: suffix = "ExtraBold"
         default:             suffix = "Regular"
         }
-        return .custom("PlusJakartaSans-\(suffix)", size: size)
+        return .custom("PlusJakartaSans-\(suffix)", size: size * screenScale)
     }
 
     // Register all bundled TTF fonts at app launch.

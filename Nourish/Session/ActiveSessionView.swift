@@ -7,15 +7,12 @@ struct ActiveSessionView: View {
     @Environment(\.nourishColors) private var c
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var tooltips: TooltipManager
-    @AppStorage("babyGender")    private var babyGender    = "Girl"
     @AppStorage("alarmEnabled")  private var alarmEnabled  = true
     @AppStorage("alarmMinutes")  private var alarmMinutes  = 45
 
     let store: SessionStore
     let darkMode: Bool
-    let showEncouragements: Bool
 
-    @State private var msgIndex      = 0
     @State private var showAlarmModal = false
     @State private var alarmFired    = false
     @State private var showDiscardConfirm = false
@@ -27,25 +24,6 @@ struct ActiveSessionView: View {
     @State private var capturedFeedType:     FeedType = .left
     @State private var capturedSide:         FeedSide = .left
     @State private var capturedElapsed:      Int      = 0
-
-    private var encouragements: [String] {
-        let pronoun:    String
-        let possessive: String
-        let object:     String
-        switch babyGender {
-        case "Boy":   pronoun = "He";   possessive = "his";   object = "him"
-        case "Other": pronoun = "They"; possessive = "their"; object = "them"
-        default:      pronoun = "She";  possessive = "her";   object = "her"
-        }
-        return [
-            "You're doing amazing ✨",
-            "Every drop counts 💛",
-            "You're \(possessive) whole world right now 🌙",
-            "This moment is precious 🤍",
-            "Rest easy — you've got this",
-            "\(pronoun) knows it's you holding \(object) 🫶",
-        ]
-    }
 
     private var side: FeedSide { store.currentSide ?? .left }
 
@@ -125,19 +103,18 @@ struct ActiveSessionView: View {
             VStack(spacing: 0) {
                 topBar
                 timerHero
-                if showEncouragements { encouragementCard }
                 notesField
-                    .padding(.bottom, 10)
-                Spacer()
-                actionButtons
+                Spacer(minLength: 24)
+                primaryAction
+                    .padding(.bottom, 44)
+                secondaryActions
             }
             .padding(.horizontal, 24)
             .padding(.top, 58 + 10)
-            .padding(.bottom, 14)
+            .padding(.bottom, 22)
         }
         .preferredColorScheme(darkMode ? .dark : nil)
         .onAppear {
-            msgIndex = Int.random(in: 0..<encouragements.count)
             guard !didEvaluateTooltips else { return }
             didEvaluateTooltips = true
             if !tooltips.hasSeen(.switchSide) {
@@ -320,109 +297,94 @@ struct ActiveSessionView: View {
         .padding(.bottom, 16)
     }
 
-    // MARK: Encouragement
+    // MARK: Action buttons — primary (switch) vs secondary (pause/end)
 
-    @ViewBuilder
-    private var encouragementCard: some View {
-        if showEncouragements {
-            Text("\u{201C}\(encouragements[msgIndex])\u{201D}")
-                .font(.nSerif(17, italic: true))
-                .foregroundStyle(darkMode ? .white.opacity(0.58) : c.muted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 13)
-                .background(ghostBg)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(ghostBorder, lineWidth: 1))
-                .padding(.bottom, 20)
+    /// Terra cotta switch button. The primary action — most-used by far,
+    /// so it gets the prominent slot (full-width, mid-screen). Outline
+    /// style so it leads the hierarchy without dominating the screen.
+    private var primaryAction: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            store.switchSide()
+            if !tooltips.hasSeen(.endSession) {
+                if tooltips.active == .switchSide { tooltips.dismiss() }
+                tooltips.show(.endSession, after: 0.45)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.nSans(18, weight: .bold))
+                Text("Switch to \(side.opposite.name.lowercased())")
+                    .font(.nSans(18, weight: .bold))
+            }
+            .foregroundStyle(switchTextColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: 68)
+            .overlay(Capsule().stroke(switchBorderColor, lineWidth: 2))
+            .clipShape(Capsule())
         }
+        .buttonStyle(ScaleButtonStyle(scale: 0.97))
+        .tooltipTarget(.switchSide)
     }
 
-    // MARK: Action buttons
+    private var switchTextColor: Color {
+        darkMode ? Color(hex: "F5A05A") : Color(hex: "C05840")
+    }
+    private var switchBorderColor: Color {
+        (darkMode ? Color(hex: "F5A05A") : Color(hex: "C05840")).opacity(darkMode ? 0.55 : 0.55)
+    }
 
-    private var actionButtons: some View {
-        VStack(spacing: 10) {
+    /// Pause + End row. Both outline so neither competes with the primary
+    /// switch. End is tinted terra cotta to telegraph finality without
+    /// being visually heavy enough to compete for the thumb.
+    private var secondaryActions: some View {
+        HStack(spacing: 12) {
             // Pause / Resume
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 store.isPaused ? store.resume() : store.pause()
             } label: {
-                HStack(spacing: 10) {
-                    Text(store.isPaused ? "▶" : "⏸")
-                        .font(.nSans(17))
-                    Text(store.isPaused ? "Resume timer" : "Pause timer")
-                        .font(.nSans(16, weight: .semibold))
+                HStack(spacing: 8) {
+                    Image(systemName: store.isPaused ? "play.fill" : "pause.fill")
+                        .font(.nSans(13, weight: .semibold))
+                    Text(store.isPaused ? "Resume" : "Pause")
+                        .font(.nSans(15, weight: .semibold))
                 }
-                .foregroundStyle(textColor)
+                .foregroundStyle(textColor.opacity(0.75))
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(ghostBg)
+                .frame(height: 50)
+                .overlay(Capsule().stroke(ghostBorder, lineWidth: 1.5))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(ghostBorder, lineWidth: 1))
             }
             .buttonStyle(ScaleButtonStyle())
-
-            // Switch side
-            Button {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                store.switchSide()
-                if !tooltips.hasSeen(.endSession) {
-                    if tooltips.active == .switchSide { tooltips.dismiss() }
-                    tooltips.show(.endSession, after: 0.45)
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Text("⇄")
-                        .font(.nSans(18))
-                        .foregroundStyle(darkMode
-                            ? .white.opacity(0.55)
-                            : c.accentColor(for: side.opposite))
-                    Text("Switch to \(side.opposite.name) breast")
-                        .font(.nSans(16, weight: .semibold))
-                        .foregroundStyle(darkMode ? .white.opacity(0.78) : c.ink)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(switchBg)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(switchBorder, lineWidth: 1))
-            }
-            .buttonStyle(ScaleButtonStyle())
-            .tooltipTarget(.switchSide)
 
             // End session
             Button {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 endSession()
             } label: {
-                HStack(spacing: 10) {
-                    Text("■")
-                        .font(.nSans(17))
+                HStack(spacing: 8) {
+                    Image(systemName: "stop.fill")
+                        .font(.nSans(13, weight: .semibold))
                     Text("End session")
-                        .font(.nSans(18, weight: .bold))
+                        .font(.nSans(15, weight: .semibold))
                 }
-                .foregroundStyle(darkMode ? Color(hex: "F5C49A") : .white)
+                .foregroundStyle(endTextColor)
                 .frame(maxWidth: .infinity)
-                .frame(height: 64)
-                .background(
-                    darkMode
-                        ? Color(hex: "F5C49A").opacity(0.13)
-                        : c.accentColor(for: side)
-                )
+                .frame(height: 50)
+                .overlay(Capsule().stroke(endBorderColor, lineWidth: 1.5))
                 .clipShape(Capsule())
-                .overlay(
-                    darkMode
-                        ? AnyView(Capsule().stroke(Color(hex: "F5C49A").opacity(0.32), lineWidth: 1))
-                        : AnyView(EmptyView())
-                )
-                .shadow(
-                    color: darkMode ? .clear : c.shadowColor(for: side),
-                    radius: 10, y: 4
-                )
             }
-            .buttonStyle(ScaleButtonStyle(scale: 0.97))
+            .buttonStyle(ScaleButtonStyle())
             .tooltipTarget(.endSession)
         }
+    }
+
+    private var endTextColor: Color {
+        darkMode ? Color(hex: "F5A05A") : Color(hex: "C05840")
+    }
+    private var endBorderColor: Color {
+        (darkMode ? Color(hex: "F5A05A") : Color(hex: "C05840")).opacity(0.35)
     }
 
     // MARK: Notes
@@ -433,11 +395,16 @@ struct ActiveSessionView: View {
                 .font(.nSans(14))
                 .foregroundStyle(labelColor)
 
-            TextField("Add a note...", text: $notes)
-                .font(.nSans(14))
-                .foregroundStyle(textColor)
-                .tint(timerColor)
-                .submitLabel(.done)
+            TextField(
+                "",
+                text: $notes,
+                prompt: Text("Add a note")
+                    .foregroundColor(darkMode ? .white.opacity(0.55) : c.muted)
+            )
+            .font(.nSans(14))
+            .foregroundStyle(textColor)
+            .tint(timerColor)
+            .submitLabel(.done)
         }
         .padding(.horizontal, 14)
         .frame(height: 44)

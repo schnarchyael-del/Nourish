@@ -77,13 +77,16 @@ struct StatsView: View {
     private var leftSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .left } }
     private var rightSessions: [FeedingSession]   { filteredSessions.filter { $0.feedType == .right } }
 
-    private var totalSessions: Int { filteredSessions.count }
+    /// All feeds (breast + bottle, excluding pump). Pump is tracked as its
+    /// own activity and shouldn't inflate "sessions" or "avg per session".
+    private var feedSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType != .pump } }
+
+    private var totalSessions: Int { feedSessions.count }
 
     private var avgDurationMins: Int {
-        let activeSessions = filteredSessions.filter { $0.feedType != .bottle }
-        guard !activeSessions.isEmpty else { return 0 }
-        let total = activeSessions.reduce(0) { $0 + $1.totalActiveMinutes }
-        return total / activeSessions.count
+        guard !feedSessions.isEmpty else { return 0 }
+        let total = feedSessions.reduce(0) { $0 + $1.totalActiveMinutes }
+        return total / feedSessions.count
     }
 
     private var totalPumpVolumeMl: Int {
@@ -1355,7 +1358,11 @@ struct StatsView: View {
 
         HStack(spacing: 8) {
             ForEach(BottleContentType.allCases, id: \.rawValue) { type in
-                let count = bottleSessions.filter { $0.bottleContentType == type }.count
+                // Legacy bottles without an explicit content type get
+                // bucketed as breast milk (the more common case). New
+                // logged sessions require a selection, so going forward
+                // this fallback only affects historical data.
+                let count = bottleSessions.filter { ($0.bottleContentType ?? .breastmilk) == type }.count
                 HStack(spacing: 7) {
                     Text(type.icon).font(.nSans(16))
                     VStack(alignment: .leading, spacing: 1) {
