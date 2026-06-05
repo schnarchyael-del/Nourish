@@ -14,16 +14,27 @@ struct HomeView: View {
     @Query(sort: \FeedingSession.startTime, order: SortOrder.reverse) private var sessions: [FeedingSession]
 
     @AppStorage("userName") private var userName = "Sarah"
+    @AppStorage("babyName") private var babyName = "Lily"
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showBottleSheet   = false
     @State private var avatarTapCount    = 0
     @State private var avatarResetTask: DispatchWorkItem? = nil
     @State private var didInitialEvaluate = false
+
+    // "Baby is sleeping — end nap and start a feed?" alert state.
+    // Any tap on a feed action (L/R/Bottle/Pump) is routed through
+    // `attemptFeedAction(_:)`; if a nap is in progress we stash the action
+    // and prompt instead of starting immediately.
+    private enum PendingFeedAction { case side(FeedSide), bottle, pump }
+    @State private var pendingFeedAction: PendingFeedAction?
+    @State private var showEndSleepAlert = false
     /// Cached count of consecutive recent days with at least one feed. Only
     /// surfaced when >= 5 so we never show a "0 day streak" or empty state.
     @State private var streakDays: Int = 0
 
-    private var lastFeed: FeedingSession? { sessions.first(where: { $0.feedType != .pump }) }
+    private var lastFeed: FeedingSession? {
+        sessions.first(where: { $0.feedType != .pump && $0.feedType != .sleep })
+    }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: .now)
@@ -54,6 +65,16 @@ struct HomeView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(28)
                 .presentationBackground(c.bg)
+        }
+        .alert("\(babyName) is sleeping", isPresented: $showEndSleepAlert) {
+            Button("Cancel", role: .cancel) { pendingFeedAction = nil }
+            Button("End nap & feed") {
+                SleepView.endActiveSleep(modelContext: modelContext)
+                if let action = pendingFeedAction { executeFeedAction(action) }
+                pendingFeedAction = nil
+            }
+        } message: {
+            Text("Would you like to end the nap and start feeding?")
         }
         .onAppear {
             // .onAppear can fire multiple times during initial layout and
@@ -106,7 +127,7 @@ struct HomeView: View {
         let hour = cal.component(.hour, from: .now)
 
         var feedDays: Set<Date> = []
-        for session in sessions where session.feedType != .pump {
+        for session in sessions where session.feedType != .pump && session.feedType != .sleep {
             feedDays.insert(cal.startOfDay(for: session.startTime))
         }
 
@@ -126,6 +147,35 @@ struct HomeView: View {
             cursor = prev
         }
         streakDays = streak
+    }
+
+    // MARK: Feed-action routing (sleep conflict guard)
+
+    /// Entry point for every feed-start tap on Home. If a nap is in
+    /// progress, prompts to end it first; otherwise runs the action
+    /// immediately (existing behavior).
+    private func attemptFeedAction(_ action: PendingFeedAction) {
+        if SleepView.hasActiveSleep {
+            pendingFeedAction = action
+            showEndSleepAlert = true
+        } else {
+            executeFeedAction(action)
+        }
+    }
+
+    private func executeFeedAction(_ action: PendingFeedAction) {
+        switch action {
+        case .side(let side):
+            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            store.start(side: side)
+            AnalyticsService.sessionStarted(startingSide: side.rawValue, feedType: "breast")
+        case .bottle:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showBottleSheet = true
+        case .pump:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onPump()
+        }
     }
 
     private func evaluateTooltips() {
@@ -326,9 +376,7 @@ struct HomeView: View {
 
     private func sideButton(_ side: FeedSide) -> some View {
         Button {
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-            store.start(side: side)
-            AnalyticsService.sessionStarted(startingSide: side.rawValue, feedType: "breast")
+            attemptFeedAction(.side(side))
         } label: {
             VStack(spacing: 8) {
                 Text(side.label)
@@ -385,8 +433,7 @@ struct HomeView: View {
     private var secondaryButtons: some View {
         HStack(spacing: 10) {
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                showBottleSheet = true
+                attemptFeedAction(.bottle)
             } label: {
                 HStack(spacing: 6) {
                     Text("🍼").font(.nSans(17))
@@ -403,8 +450,7 @@ struct HomeView: View {
             .buttonStyle(ScaleButtonStyle())
 
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                onPump()
+                attemptFeedAction(.pump)
             } label: {
                 HStack(spacing: 6) {
                     Image("pump_icon")

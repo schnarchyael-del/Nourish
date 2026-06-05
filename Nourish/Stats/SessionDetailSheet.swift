@@ -75,6 +75,13 @@ struct SessionDetailSheet: View {
                 .background(c.pumpBg)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.pumpBorder, lineWidth: 1.5))
+        case .sleep:
+            Text("🌙")
+                .font(.nSans(24))
+                .frame(width: 52, height: 52)
+                .background(SleepView.sleepBg)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(SleepView.sleepBorder, lineWidth: 1.5))
         default:
             Text(session.feedType.shortLabel)
                 .font(.nSans(20, weight: .bold))
@@ -95,6 +102,7 @@ struct SessionDetailSheet: View {
         case .pump:   return "Pump session"
         case .left:   return "Left breast"
         case .right:  return "Right breast"
+        case .sleep:  return "Sleep"
         }
     }
 
@@ -132,6 +140,12 @@ struct SessionDetailSheet: View {
                     detailRow(label: "Content", value: type.displayName)
                 } else {
                     detailRow(label: "Amount", value: "—")
+                }
+            case .sleep:
+                detailRow(label: "Duration", value: SleepView.formatHM(session.totalActiveMinutes))
+                if let end = session.endTime {
+                    Divider().overlay(c.border)
+                    detailRow(label: "Woke up", value: end.formatted(date: .omitted, time: .shortened))
                 }
             }
         }

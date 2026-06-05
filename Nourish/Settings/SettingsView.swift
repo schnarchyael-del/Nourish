@@ -1185,19 +1185,22 @@ private struct DataSubView: View {
         let df = DateFormatter(); df.dateFormat = "d MMM yyyy"
         let tf = DateFormatter(); tf.dateFormat = "HH:mm"
 
-        var csv = "Date,Start Time,Type,Duration (mins),Left Duration (mins),Right Duration (mins),Side,Pump Side,Bottle Type,Amount ML,Volume ML,Notes\n"
+        var csv = "Date,Start Time,End Time,Type,Duration (mins),Left Duration (mins),Right Duration (mins),Side,Pump Side,Bottle Type,Amount ML,Volume ML,Notes\n"
         for s in sessions {
             let typeLabel: String
             switch s.feedType {
             case .left, .right: typeLabel = "breast"
             case .bottle:       typeLabel = "bottle"
             case .pump:         typeLabel = "pump"
+            case .sleep:        typeLabel = "sleep"
             }
             let breastSide = (s.feedType == .left || s.feedType == .right) ? s.feedType.displayName : ""
             let notes = s.notes.map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" } ?? ""
+            let endTimeStr = s.endTime.map { tf.string(from: $0) } ?? ""
             let row = [
                 df.string(from: s.startTime),
                 tf.string(from: s.startTime),
+                endTimeStr,
                 typeLabel,
                 "\(s.totalActiveMinutes)",
                 "\(s.leftMinutesResolved)",

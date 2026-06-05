@@ -22,9 +22,10 @@ struct NourishProvider: TimelineProvider {
         let now = Date.now
 
         // Each entry's `date` doubles as the "reference now" for the static
-        // "X min ago" string the widget renders. 1-min spacing for the first
-        // hour gives clean per-minute updates; 5-min spacing for the next
-        // hour keeps the prerendered set bounded.
+        // strings the widget renders ("X min ago" for feeds, "Xh Ym" sleep
+        // elapsed). 1-min spacing for the first hour gives clean per-minute
+        // feed-ago updates; 5-min spacing extends the prerendered set for the
+        // sleep elapsed counter (per spec) without overstuffing the timeline.
         var entries: [NourishEntry] = []
         for minutes in 0...60 {
             let date = now.addingTimeInterval(TimeInterval(minutes) * 60)

@@ -1,11 +1,12 @@
 import SwiftUI
 
 enum NourishTab: Int, CaseIterable {
-    case home = 0, log = 1, stats = 2, settings = 3
+    case feed = 0, sleep = 1, log = 2, stats = 3, settings = 4
 
     var label: String {
         switch self {
-        case .home:     "Home"
+        case .feed:     "Feed"
+        case .sleep:    "Sleep"
         case .log:      "Log"
         case .stats:    "Stats"
         case .settings: "Me"
@@ -27,6 +28,7 @@ struct BottomTabBar: View {
                 ForEach(NourishTab.allCases, id: \.rawValue) { tab in
                     tabButton(tab)
                         .tooltipTargetIf(tab == .settings, .settings)
+                        .tooltipTargetIf(tab == .sleep,    .sleepTab)
                 }
             }
             .padding(.top, 8)
@@ -37,15 +39,16 @@ struct BottomTabBar: View {
 
     private func tabButton(_ tab: NourishTab) -> some View {
         let isActive = selectedTab == tab.rawValue
+        let tint: Color = tab == .sleep ? Color(hex: "534AB7") : colors.leftAccent
         return Button {
             selectedTab = tab.rawValue
         } label: {
             VStack(spacing: 3) {
-                tabIcon(tab, active: isActive)
+                tabIcon(tab, active: isActive, tint: tint)
                 Text(tab.label)
                     .font(.nSans(11, weight: .semibold))
                     .kerning(0.04 * 11)
-                    .foregroundStyle(isActive ? colors.leftAccent : colors.muted)
+                    .foregroundStyle(isActive ? tint : colors.muted)
             }
             .frame(maxWidth: .infinity)
         }
@@ -53,11 +56,11 @@ struct BottomTabBar: View {
     }
 
     @ViewBuilder
-    private func tabIcon(_ tab: NourishTab, active: Bool) -> some View {
-        let color: Color = active ? colors.leftAccent : colors.ink.opacity(0.25)
+    private func tabIcon(_ tab: NourishTab, active: Bool, tint: Color) -> some View {
+        let color: Color = active ? tint : colors.ink.opacity(0.25)
         switch tab {
-        case .home:
-            // Circle with center dot
+        case .feed:
+            // Circle with center dot — kept from the previous Home icon.
             ZStack {
                 Circle()
                     .stroke(color, lineWidth: 1.5)
@@ -66,23 +69,22 @@ struct BottomTabBar: View {
                     .fill(color)
                     .frame(width: 5, height: 5)
             }
+        case .sleep:
+            Image(systemName: "moon.fill")
+                .font(.nSans(17))
+                .foregroundStyle(color)
         case .log:
             Image(systemName: "plus")
                 .font(.nSans(18, weight: .medium))
                 .foregroundStyle(color)
         case .stats:
-            Image(systemName: "square.split.2x1")
-                .font(.nSans(18))
+            Image(systemName: "chart.bar.fill")
+                .font(.nSans(17))
                 .foregroundStyle(color)
         case .settings:
-            ZStack {
-                Circle()
-                    .stroke(color, lineWidth: 1.5)
-                    .frame(width: 20, height: 20)
-                Circle()
-                    .stroke(color, lineWidth: 1.5)
-                    .frame(width: 10, height: 10)
-            }
+            Image(systemName: "person.crop.circle")
+                .font(.nSans(19))
+                .foregroundStyle(color)
         }
     }
 }

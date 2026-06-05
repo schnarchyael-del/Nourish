@@ -12,6 +12,7 @@ enum TooltipID: String, CaseIterable {
     case statsHint
     case historySwipe
     case pumpButton
+    case sleepTab
 
     var storageKey: String { "tooltip_\(rawValue)_shown" }
 
@@ -33,6 +34,8 @@ enum TooltipID: String, CaseIterable {
             return "Swipe left on any session to edit or delete"
         case .pumpButton:
             return "Track pump sessions — duration, volume, and notes"
+        case .sleepTab:
+            return "Track naps and sleep — tap when baby falls asleep, tap when they wake up 🌙"
         }
     }
 

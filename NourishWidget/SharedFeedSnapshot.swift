@@ -28,6 +28,10 @@ struct FeedSnapshot {
     /// Frozen side-elapsed seconds at the moment of pause; shown as a static readout.
     let activeSessionPausedSideSeconds: Int
 
+    /// Sleep state — overlays on top of feed info when true.
+    let isBabySleeping: Bool
+    let sleepStartedAt: Date?
+
     static let empty = FeedSnapshot(
         lastFeedTime: nil,
         lastFeedDurationSeconds: 0,
@@ -45,7 +49,9 @@ struct FeedSnapshot {
         activeSessionSide: "",
         activeSessionSideStart: nil,
         activeSessionPausedAt: nil,
-        activeSessionPausedSideSeconds: 0
+        activeSessionPausedSideSeconds: 0,
+        isBabySleeping: false,
+        sleepStartedAt: nil
     )
 
     static let placeholder = FeedSnapshot(
@@ -65,7 +71,9 @@ struct FeedSnapshot {
         activeSessionSide: "",
         activeSessionSideStart: nil,
         activeSessionPausedAt: nil,
-        activeSessionPausedSideSeconds: 0
+        activeSessionPausedSideSeconds: 0,
+        isBabySleeping: false,
+        sleepStartedAt: nil
     )
 
     static let placeholderActive = FeedSnapshot(
@@ -85,7 +93,9 @@ struct FeedSnapshot {
         activeSessionSide: "left",
         activeSessionSideStart: Date.now.addingTimeInterval(-3 * 60 - 42),
         activeSessionPausedAt: nil,
-        activeSessionPausedSideSeconds: 0
+        activeSessionPausedSideSeconds: 0,
+        isBabySleeping: false,
+        sleepStartedAt: nil
     )
 
     var hasData: Bool { lastFeedTime != nil }
@@ -134,6 +144,8 @@ enum SharedKey {
     static let activeSessionSideStart      = "widget.activeSessionSideStart"
     static let activeSessionPausedSideSeconds = "widget.activeSessionPausedSideSeconds"
     static let activePausedAt        = "widget.activeSessionPausedAt"
+    static let isBabySleeping        = "widget.isBabySleeping"
+    static let sleepStartedAt        = "widget.sleepStartedAt"
 }
 
 extension FeedSnapshot {
@@ -158,6 +170,11 @@ extension FeedSnapshot {
             ? Date(timeIntervalSince1970: pausedAtTs)
             : nil
 
+        let sleepStartTs = d.double(forKey: SharedKey.sleepStartedAt)
+        let sleepStart: Date? = sleepStartTs > 0
+            ? Date(timeIntervalSince1970: sleepStartTs)
+            : nil
+
         return FeedSnapshot(
             lastFeedTime: lastFeedTime,
             lastFeedDurationSeconds: d.integer(forKey: SharedKey.lastFeedDuration),
@@ -175,7 +192,9 @@ extension FeedSnapshot {
             activeSessionSide: d.string(forKey: SharedKey.activeSessionSide) ?? "",
             activeSessionSideStart: sideStart,
             activeSessionPausedAt: pausedAt,
-            activeSessionPausedSideSeconds: d.integer(forKey: SharedKey.activeSessionPausedSideSeconds)
+            activeSessionPausedSideSeconds: d.integer(forKey: SharedKey.activeSessionPausedSideSeconds),
+            isBabySleeping: d.bool(forKey: SharedKey.isBabySleeping) && sleepStart != nil,
+            sleepStartedAt: sleepStart
         )
     }
 }
@@ -243,5 +262,18 @@ enum FeedFormat {
         case "bottle": return "🍼"
         default:       return "—"
         }
+    }
+
+    /// Static "Xh YYm" / "YYm" elapsed since sleep started. Uses the timeline
+    /// entry's reference date so each prerendered widget entry shows the
+    /// correct value at display time (no `.timer` / `.relative` style).
+    static func sleepElapsed(from start: Date?, reference: Date = .now) -> String {
+        guard let start else { return "—" }
+        let mins = max(0, Int(reference.timeIntervalSince(start)) / 60)
+        let h = mins / 60
+        let m = mins % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        if h > 0          { return "\(h)h" }
+        return "\(m)m"
     }
 }

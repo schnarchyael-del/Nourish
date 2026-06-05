@@ -79,11 +79,13 @@ struct InsightsEngine {
         if let windowDays = filter.trendWindowDays {
             pool.append(contentsOf: trends().filter { shouldShow($0) })
             pool.append(contentsOf: pumpTrends(windowDays: windowDays).filter { shouldShow($0) })
+            pool.append(contentsOf: sleepTrends(windowDays: windowDays).filter { shouldShow($0) })
         }
 
         // Patterns.
         pool.append(contentsOf: patterns().filter { shouldShow($0) })
         pool.append(contentsOf: pumpPatterns().filter { shouldShow($0) })
+        pool.append(contentsOf: sleepPatterns().filter { shouldShow($0) })
 
         return Array(pool.sorted { $0.category.rawValue < $1.category.rawValue }.prefix(maxCount))
     }
@@ -151,6 +153,10 @@ struct InsightsEngine {
         sessions.filter { $0.feedType == .pump }
     }
 
+    private var sleepSessions: [FeedingSession] {
+        sessions.filter { $0.feedType == .sleep }
+    }
+
     private var sessionsInPatternWindow: [FeedingSession] {
         guard let days = filter.windowDays else { return sessions }
         let start = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
@@ -161,6 +167,12 @@ struct InsightsEngine {
         guard let days = filter.windowDays else { return pumpSessions }
         let start = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
         return pumpSessions.filter { $0.startTime >= start }
+    }
+
+    private var sleepSessionsInWindow: [FeedingSession] {
+        guard let days = filter.windowDays else { return sleepSessions }
+        let start = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
+        return sleepSessions.filter { $0.startTime >= start }
     }
 
     // MARK: - Pattern insights
@@ -369,6 +381,7 @@ struct InsightsEngine {
         out.append(contentsOf: totalTimeMilestone())
         out.append(contentsOf: pumpSessionCountMilestone())
         out.append(contentsOf: pumpVolumeMilestone())
+        out.append(contentsOf: sleepSessionCountMilestone())
         return out
     }
 
@@ -590,6 +603,179 @@ struct InsightsEngine {
             description: "This period: \(breast) \(bf), \(pump) \(ps), \(bottle) \(bt).",
             category: .pattern, trend: nil
         )
+    }
+
+    // MARK: - Sleep milestones
+
+    private func sleepSessionCountMilestone() -> [Insight] {
+        let count = sleepSessions.count
+        guard let n = [10, 25, 50, 100].last(where: { count >= $0 }) else { return [] }
+        return [Insight(
+            id: "milestone_sleep_sessions_\(n)",
+            emoji: "🌙",
+            title: "\(n) naps tracked!",
+            description: "You've logged \(n) sleep sessions. Sweet dreams 💜",
+            category: .milestone, trend: nil
+        )]
+    }
+
+    // MARK: - Sleep trends
+
+    private func sleepTrends(windowDays: Int) -> [Insight] {
+        var out: [Insight] = []
+        if let i = sleepTotalTrend(windowDays: windowDays)    { out.append(i) }
+        if let i = sleepDurationTrend(windowDays: windowDays) { out.append(i) }
+        return out
+    }
+
+    /// Total daily sleep this period vs prior period.
+    private func sleepTotalTrend(windowDays: Int) -> Insight? {
+        let curStart   = Calendar.current.date(byAdding: .day, value: -windowDays,     to: now)!
+        let priorStart = Calendar.current.date(byAdding: .day, value: -2 * windowDays, to: now)!
+        let current = sleepSessions.filter { $0.startTime >= curStart }
+        let prior   = sleepSessions.filter { $0.startTime >= priorStart && $0.startTime < curStart }
+        guard current.count >= 3, prior.count >= 3 else { return nil }
+        let cAvg = sleepHoursPerDay(current, days: windowDays)
+        let pAvg = sleepHoursPerDay(prior,   days: windowDays)
+        guard cAvg > 0, pAvg > 0 else { return nil }
+        let pct = ((cAvg - pAvg) / pAvg) * 100
+        guard abs(pct) >= 15 else { return nil }
+        let direction: Insight.TrendDirection = pct > 0 ? .up : .down
+        let word = pct > 0 ? "up" : "down"
+        return Insight(
+            id: "trend_sleep_total_\(direction == .up ? "up" : "down")",
+            emoji: "💤",
+            title: "Total sleep trend",
+            description: "Total daily sleep is \(word) \(Int(abs(pct).rounded()))% this period (\(formatHours(cAvg)) vs \(formatHours(pAvg)) last period).",
+            category: .trend, trend: direction
+        )
+    }
+
+    /// Average nap duration this period vs prior period.
+    private func sleepDurationTrend(windowDays: Int) -> Insight? {
+        let curStart   = Calendar.current.date(byAdding: .day, value: -windowDays,     to: now)!
+        let priorStart = Calendar.current.date(byAdding: .day, value: -2 * windowDays, to: now)!
+        let current = sleepSessions.filter { $0.startTime >= curStart }
+        let prior   = sleepSessions.filter { $0.startTime >= priorStart && $0.startTime < curStart }
+        guard current.count >= 3, prior.count >= 3 else { return nil }
+        let cAvg = avgActiveMinutes(current)
+        let pAvg = avgActiveMinutes(prior)
+        guard cAvg > 0, pAvg > 0 else { return nil }
+        let pct = (Double(cAvg - pAvg) / Double(pAvg)) * 100
+        guard abs(pct) >= 15 else { return nil }
+        let direction: Insight.TrendDirection = pct > 0 ? .up : .down
+        let phrase = pct > 0 ? "getting longer" : "getting shorter"
+        return Insight(
+            id: "trend_sleep_duration_\(direction == .up ? "up" : "down")",
+            emoji: "🌙",
+            title: "Nap duration trend",
+            description: "Average nap is \(phrase) — \(formatMinutesHM(cAvg)) vs \(formatMinutesHM(pAvg)) last period.",
+            category: .trend, trend: direction
+        )
+    }
+
+    // MARK: - Sleep patterns
+
+    private func sleepPatterns() -> [Insight] {
+        let pool = sleepSessionsInWindow
+        guard pool.count >= 3 else { return [] }
+        var out: [Insight] = []
+        if let i = sleepLongestNapWindowInsight(pool) { out.append(i) }
+        if let i = napFrequencyInsight(pool)          { out.append(i) }
+        if let i = sleepAfterFeedInsight(pool)        { out.append(i) }
+        return out
+    }
+
+    /// When are the longest naps? Bucket by 4-hour windows, find the bucket
+    /// with the highest average duration if it has at least 2 samples and is
+    /// >= 30 min average.
+    private func sleepLongestNapWindowInsight(_ pool: [FeedingSession]) -> Insight? {
+        var bucketMinutes: [Int: [Int]] = [:]
+        for s in pool {
+            let bucket = Calendar.current.component(.hour, from: s.startTime) / 4
+            bucketMinutes[bucket, default: []].append(s.totalActiveMinutes)
+        }
+        guard let best = bucketMinutes
+            .filter({ $0.value.count >= 2 })
+            .max(by: { (avg($0.value)) < (avg($1.value)) })
+        else { return nil }
+        let bestAvg = Int(avg(best.value).rounded())
+        guard bestAvg >= 30 else { return nil }
+        return Insight(
+            id: "pattern_sleep_longest_window_\(best.key)",
+            emoji: "🌙",
+            title: "Longest nap window",
+            description: "Longest naps are usually between \(bucketLabel(best.key)) (avg \(formatMinutesHM(bestAvg))).",
+            category: .pattern, trend: nil
+        )
+    }
+
+    /// Naps per day across the pattern window.
+    private func napFrequencyInsight(_ pool: [FeedingSession]) -> Insight? {
+        guard let days = filter.windowDays, days > 0 else { return nil }
+        let perDay = Double(pool.count) / Double(days)
+        guard perDay >= 1 else { return nil }
+        let label = perDay >= 10 ? "\(Int(perDay.rounded()))" : String(format: "%.1f", perDay)
+        let period = filter == .week ? "week" : "period"
+        return Insight(
+            id: "pattern_sleep_frequency",
+            emoji: "💤",
+            title: "Nap frequency",
+            description: "Averaging \(label) nap\(perDay == 1 ? "" : "s") per day this \(period).",
+            category: .pattern, trend: nil
+        )
+    }
+
+    /// How long after a feed does the baby usually fall asleep? Looks at every
+    /// nap that started within 2 hours of any prior feed and reports the
+    /// typical range.
+    private func sleepAfterFeedInsight(_ pool: [FeedingSession]) -> Insight? {
+        let feeds = sessions.filter { $0.feedType != .pump && $0.feedType != .sleep }
+        guard !feeds.isEmpty else { return nil }
+
+        var gapsMin: [Int] = []
+        for nap in pool {
+            // Most recent feed that ENDED before this nap started.
+            let priorFeed = feeds
+                .filter { ($0.endTime ?? $0.startTime) <= nap.startTime }
+                .max(by: { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) })
+            guard let pf = priorFeed else { continue }
+            let feedEnd = pf.endTime ?? pf.startTime
+            let gapSec = nap.startTime.timeIntervalSince(feedEnd)
+            guard gapSec > 0, gapSec < 2 * 3600 else { continue }
+            gapsMin.append(Int(gapSec / 60))
+        }
+        guard gapsMin.count >= 3 else { return nil }
+
+        let sorted = gapsMin.sorted()
+        let low  = sorted[sorted.count / 4]
+        let high = sorted[(sorted.count * 3) / 4]
+        let range = high == low ? "\(low) min" : "\(low)-\(high) min"
+        return Insight(
+            id: "pattern_sleep_after_feed",
+            emoji: "🍼",
+            title: "Sleep after feed",
+            description: "Usually falls asleep \(range) after a feed.",
+            category: .pattern, trend: nil
+        )
+    }
+
+    private func sleepHoursPerDay(_ pool: [FeedingSession], days: Int) -> Double {
+        let totalMin = pool.reduce(0) { $0 + $1.totalActiveMinutes }
+        return Double(totalMin) / Double(days) / 60.0
+    }
+
+    private func avg(_ values: [Int]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        return Double(values.reduce(0, +)) / Double(values.count)
+    }
+
+    private func formatMinutesHM(_ minutes: Int) -> String {
+        let h = minutes / 60
+        let m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        if h > 0          { return "\(h)h" }
+        return "\(m)m"
     }
 
     // MARK: - Helpers

@@ -37,6 +37,10 @@ enum SharedFeedSnapshot {
         static let activeSessionPausedSideSeconds = "widget.activeSessionPausedSideSeconds"
         // Pause timestamp (non-zero = paused).
         static let activePausedAt        = "widget.activeSessionPausedAt"
+        // Sleep — written when "Baby fell asleep" is tapped; cleared on "Baby woke up".
+        // The widget composes its own elapsed string from `now - sleepStartedAt`.
+        static let isBabySleeping        = "widget.isBabySleeping"
+        static let sleepStartedAt        = "widget.sleepStartedAt"
     }
 
     /// Mark a session as active in the shared snapshot and reload widgets.
@@ -67,6 +71,23 @@ enum SharedFeedSnapshot {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    /// Mark a sleep in progress so the widget can overlay "Sleeping · 1h 23m".
+    /// Composes alongside existing feed info — never replaces it.
+    static func setActiveSleep(startedAt: Date) {
+        guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
+        defaults.set(true, forKey: Key.isBabySleeping)
+        defaults.set(startedAt.timeIntervalSince1970, forKey: Key.sleepStartedAt)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Clear sleep flags (baby woke up or session was discarded).
+    static func clearActiveSleep() {
+        guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
+        defaults.set(false, forKey: Key.isBabySleeping)
+        defaults.removeObject(forKey: Key.sleepStartedAt)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     /// Clear active-session flags (session ended or was discarded). Reload widgets.
     static func clearActiveSession() {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
@@ -92,9 +113,9 @@ enum SharedFeedSnapshot {
         }
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
 
-        // Last FEED (breast or bottle only — pump sessions don't tell the user
-        // when the baby last ate, which is what the widget shows).
-        let lastFeed = sessions.first(where: { $0.feedType != .pump })
+        // Last FEED (breast or bottle only — pump and sleep sessions don't
+        // tell the user when the baby last ate, which is what the widget shows).
+        let lastFeed = sessions.first(where: { $0.feedType != .pump && $0.feedType != .sleep })
         if let last = lastFeed {
             let lastSide = last.feedType.rawValue
             let durationSeconds = last.feedType == .bottle
@@ -118,9 +139,9 @@ enum SharedFeedSnapshot {
             defaults.set(0, forKey: Key.lastFeedBottleMl)
         }
 
-        // Today's feed totals (since startOfDay, breast+bottle only — pumps excluded)
+        // Today's feed totals (since startOfDay, breast+bottle only — pumps and sleep excluded)
         let dayStart = Calendar.current.startOfDay(for: .now)
-        let today = sessions.filter { $0.startTime >= dayStart && $0.feedType != .pump }
+        let today = sessions.filter { $0.startTime >= dayStart && $0.feedType != .pump && $0.feedType != .sleep }
         let leftToday  = today.reduce(0) { $0 + $1.leftMinutesResolved }
         let rightToday = today.reduce(0) { $0 + $1.rightMinutesResolved }
         defaults.set(today.count, forKey: Key.todaySessionCount)

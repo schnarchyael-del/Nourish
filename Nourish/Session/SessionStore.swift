@@ -55,6 +55,10 @@ final class SessionStore {
         if !isActive {
             SharedFeedSnapshot.clearActiveSession()
             UIApplication.shared.isIdleTimerDisabled = false
+        } else {
+            // App just came back with an in-progress session — the widget may
+            // have mutated pause / side while we were backgrounded.
+            absorbWidgetMutations()
         }
         NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
@@ -62,6 +66,36 @@ final class SessionStore {
             queue: .main
         ) { [weak self] _ in
             self?.syncToWallClock()
+            self?.absorbWidgetMutations()
+        }
+    }
+
+    /// Reconcile the in-memory session state with whatever the widget
+    /// extension wrote into the shared snapshot while we were backgrounded.
+    /// Specifically: pause-toggle and switch-side actions fire AppIntents
+    /// inside the widget process, which writes the new state to
+    /// `group.com.yael.nourish` without ever waking the main app. Without
+    /// this sync, opening the app would show stale (pre-widget-tap) state.
+    func absorbWidgetMutations() {
+        guard isActive,
+              let d = UserDefaults(suiteName: "group.com.yael.nourish")
+        else { return }
+
+        // Pause / resume.
+        let widgetPausedAt = d.double(forKey: "widget.activeSessionPausedAt")
+        let widgetIsPaused = widgetPausedAt > 0
+        if widgetIsPaused, !isPaused {
+            pause()
+        } else if !widgetIsPaused, isPaused {
+            resume()
+        }
+
+        // Switch side.
+        if let raw = d.string(forKey: "widget.activeSessionSide"),
+           let widgetSide = FeedSide(rawValue: raw),
+           let here = currentSide,
+           widgetSide != here {
+            switchSide()
         }
     }
 

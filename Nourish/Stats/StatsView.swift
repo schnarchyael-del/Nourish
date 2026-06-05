@@ -77,9 +77,12 @@ struct StatsView: View {
     private var leftSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType == .left } }
     private var rightSessions: [FeedingSession]   { filteredSessions.filter { $0.feedType == .right } }
 
-    /// All feeds (breast + bottle, excluding pump). Pump is tracked as its
-    /// own activity and shouldn't inflate "sessions" or "avg per session".
-    private var feedSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType != .pump } }
+    /// All feeds (breast + bottle, excluding pump + sleep). Each non-feed
+    /// type is tracked separately and shouldn't inflate "sessions" or
+    /// "avg per session".
+    private var feedSessions: [FeedingSession]    { filteredSessions.filter { $0.feedType != .pump && $0.feedType != .sleep } }
+
+    private var sleepSessions: [FeedingSession]   { filteredSessions.filter { $0.feedType == .sleep } }
 
     private var totalSessions: Int { feedSessions.count }
 
@@ -109,17 +112,20 @@ struct StatsView: View {
         return (totalGap / Double(sorted.count - 1)) / 3600
     }
 
-    // Bar chart data — adapts to selected tab and anchorDate
+    // Bar chart data — adapts to selected tab and anchorDate.
+    // Feed-only (breast + bottle); pump and sleep have their own dedicated
+    // surfaces and would muddle this "feeds per period" view.
     private var chartBarData: [(label: String, count: Int)] {
         let cal = Calendar.current
         let r = anchorRange
+        let isFeed: (FeedingSession) -> Bool = { $0.feedType != .pump && $0.feedType != .sleep }
 
         switch selectedTab {
         case 0: // Day — 6 × 4-hour buckets across the anchored day
             return (0..<6).map { i in
                 let bucketStart = cal.date(byAdding: .hour, value: i * 4, to: r.start)!
                 let bucketEnd   = cal.date(byAdding: .hour, value: i * 4 + 4, to: r.start)!
-                let count = sessions.filter { $0.startTime >= bucketStart && $0.startTime < bucketEnd }.count
+                let count = sessions.filter { $0.startTime >= bucketStart && $0.startTime < bucketEnd && isFeed($0) }.count
                 let label: String
                 switch i * 4 {
                 case 0:  label = "12A"
@@ -137,18 +143,71 @@ struct StatsView: View {
             return (0..<4).map { i in
                 let bucketStart = r.start.addingTimeInterval(bucket * Double(i))
                 let bucketEnd   = r.start.addingTimeInterval(bucket * Double(i + 1))
-                let count = sessions.filter { $0.startTime >= bucketStart && $0.startTime < bucketEnd }.count
+                let count = sessions.filter { $0.startTime >= bucketStart && $0.startTime < bucketEnd && isFeed($0) }.count
                 return ("Wk \(i + 1)", count)
             }
         default: // Week — 7 days starting at the anchored week's start
             return (0..<7).map { offset in
                 let dayStart = cal.date(byAdding: .day, value: offset, to: r.start)!
                 let dayEnd   = cal.date(byAdding: .day, value: 1, to: dayStart)!
-                let count    = sessions.filter { $0.startTime >= dayStart && $0.startTime < dayEnd }.count
+                let count    = sessions.filter { $0.startTime >= dayStart && $0.startTime < dayEnd && isFeed($0) }.count
                 let weekday  = cal.shortWeekdaySymbols[cal.component(.weekday, from: dayStart) - 1]
                 return (String(weekday.prefix(1)), count)
             }
         }
+    }
+
+    // MARK: Sleep aggregates
+
+    private var napCount: Int { sleepSessions.count }
+    private var totalSleepMinutes: Int { sleepSessions.reduce(0) { $0 + $1.totalActiveMinutes } }
+    private var avgNapMinutes: Int {
+        guard !sleepSessions.isEmpty else { return 0 }
+        return totalSleepMinutes / sleepSessions.count
+    }
+    private var longestNapMinutes: Int {
+        sleepSessions.map { $0.totalActiveMinutes }.max() ?? 0
+    }
+
+    // MARK: Per-period normalisation
+    //
+    // Week/Month cells show daily averages instead of raw totals, since
+    // "28 sessions" across a month tells you nothing — "5.8/day" does.
+    // Day view stays absolute. We divide by the full period length even
+    // when some days have zero activity, so the average honestly reflects
+    // the period rather than over-stating it.
+
+    /// Days to divide by for per-day averages. For the *current* period
+    /// (this week, this month) we count days that have actually elapsed —
+    /// dividing 7 sleeps logged on a Monday by the full 7-day week would
+    /// give "1.0/day" when the honest answer is "7.0/day". For past
+    /// periods we divide by the full length.
+    private var daysInPeriod: Int {
+        if selectedTab == 0 { return 1 }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: .now)
+        let r = anchorRange
+        if today >= r.start && today < r.end {
+            let elapsed = cal.dateComponents([.day], from: r.start, to: today).day ?? 0
+            return max(1, elapsed + 1)   // +1 to include today itself
+        }
+        let totalDays = cal.dateComponents([.day], from: r.start, to: r.end).day ?? 7
+        return max(1, totalDays)
+    }
+
+    private var sessionsPerDay: Double {
+        Double(totalSessions) / Double(daysInPeriod)
+    }
+    private var napsPerDay: Double {
+        Double(napCount) / Double(daysInPeriod)
+    }
+    private var sleepMinutesPerDay: Int {
+        totalSleepMinutes / daysInPeriod
+    }
+
+    /// "5.8" if < 10, "12" otherwise. Mirrors `InsightsEngine.formatPerDay`.
+    private func formatPerDay(_ value: Double) -> String {
+        value >= 10 ? "\(Int(value.rounded()))" : String(format: "%.1f", value)
     }
 
     private var maxBarValue: Int { max(1, chartBarData.map { $0.count }.max() ?? 1) }
@@ -189,6 +248,7 @@ struct StatsView: View {
                             barChartCard
                             breastVsBottleCard
                             avgTimeCard
+                            if !sleepSessions.isEmpty { sleepCard }
                             insightsSection
                         }
                         .padding(.horizontal, 20)
@@ -1138,7 +1198,11 @@ struct StatsView: View {
 
     private var summaryCards: some View {
         HStack(spacing: 10) {
-            summaryCell(big: "\(totalSessions)", small: "sessions")
+            if selectedTab == 0 {
+                summaryCell(big: "\(totalSessions)", small: "sessions")
+            } else {
+                summaryCell(big: "\(formatPerDay(sessionsPerDay))/day", small: "feeds/day")
+            }
             summaryCell(big: "\(avgDurationMins) min", small: "avg/session")
             summaryCell(big: String(format: "%.1fh", avgGapHours), small: "avg gap")
         }
@@ -1248,6 +1312,64 @@ struct StatsView: View {
     private var bottleFractionOfTotal: Double {
         guard totalFeedMinutes > 0 else { return 0 }
         return Double(bottleEquivalentMinutesTotal) / Double(totalFeedMinutes)
+    }
+
+    // MARK: Sleep card
+
+    private var sleepCard: some View {
+        // Uses the same standard `card { }` shell as Feed Breakdown / Avg
+        // Session Time so the section blends visually; the only purple is
+        // on the SLEEP label and the big numbers themselves.
+        let isDayView = selectedTab == 0
+        return card {
+            HStack(spacing: 8) {
+                Text("🌙").font(.nSans(15))
+                Text("SLEEP")
+                    .font(.nSans(11, weight: .bold))
+                    .foregroundStyle(SleepView.sleepAccent)
+                    .kerning(0.1 * 11)
+                Spacer()
+            }
+            .padding(.bottom, 14)
+
+            HStack(spacing: 10) {
+                if isDayView {
+                    sleepStatCell(big: "\(napCount)",
+                                  small: napCount == 1 ? "nap" : "naps")
+                    sleepStatCell(big: SleepView.formatHM(totalSleepMinutes),
+                                  small: "total")
+                } else {
+                    sleepStatCell(big: "\(formatPerDay(napsPerDay))/day",
+                                  small: "naps/day")
+                    sleepStatCell(big: "\(SleepView.formatHM(sleepMinutesPerDay))/day",
+                                  small: "sleep/day")
+                }
+            }
+            .padding(.bottom, 10)
+            HStack(spacing: 10) {
+                sleepStatCell(big: SleepView.formatHM(avgNapMinutes),     small: "avg nap")
+                sleepStatCell(big: SleepView.formatHM(longestNapMinutes), small: "longest")
+            }
+        }
+    }
+
+    private func sleepStatCell(big: String, small: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(big)
+                .font(.nSerif(22))
+                .foregroundStyle(SleepView.sleepAccent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(small)
+                .font(.nSans(12))
+                .foregroundStyle(c.muted)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(13)
+        .background(c.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1))
     }
 
     private var breastVsBottleCard: some View {
@@ -1625,7 +1747,7 @@ struct StatsView: View {
                         }
                     }
                 } header: {
-                    historySectionHeader(date: day.date, count: day.sessions.count)
+                    historySectionHeader(date: day.date, sessions: day.sessions)
                 }
             }
         }
@@ -1636,13 +1758,23 @@ struct StatsView: View {
         .environment(\.defaultMinListHeaderHeight, 0)
     }
 
-    private func historySectionHeader(date: Date, count: Int) -> some View {
-        HStack {
+    private func historySectionHeader(date: Date, sessions: [FeedingSession]) -> some View {
+        let feedCount = sessions.filter { $0.feedType != .pump && $0.feedType != .sleep }.count
+        let pumpCount = sessions.filter { $0.feedType == .pump  }.count
+        let napCount  = sessions.filter { $0.feedType == .sleep }.count
+        let parts: [String] = {
+            var p: [String] = []
+            if feedCount > 0 { p.append("\(feedCount) \(feedCount == 1 ? "feed" : "feeds")") }
+            if pumpCount > 0 { p.append("\(pumpCount) \(pumpCount == 1 ? "pump" : "pumps")") }
+            if napCount > 0  { p.append("\(napCount) \(napCount == 1 ? "nap" : "naps")") }
+            return p
+        }()
+        return HStack {
             Text(historyHeaderLabel(date))
                 .font(.nSans(14, weight: .semibold))
                 .foregroundStyle(c.muted)
             Spacer()
-            Text("\(count) \(count == 1 ? "session" : "sessions")")
+            Text(parts.joined(separator: " · "))
                 .font(.nSans(12, weight: .semibold))
                 .foregroundStyle(c.muted.opacity(0.85))
         }
@@ -1677,6 +1809,13 @@ struct StatsView: View {
                         .background(c.pumpBg)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(c.pumpBorder, lineWidth: 1.5))
+                case .sleep:
+                    Text("🌙")
+                        .font(.nSans(17))
+                        .frame(width: 36, height: 36)
+                        .background(SleepView.sleepBg)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(SleepView.sleepBorder, lineWidth: 1.5))
                 default:
                     Text(s.feedType.shortLabel)
                         .font(.nSans(14, weight: .bold))
@@ -1714,6 +1853,10 @@ struct StatsView: View {
                     Text(historyPumpSubtitle(s))
                         .font(.nSans(12))
                         .foregroundStyle(c.muted)
+                case .sleep:
+                    Text(historySleepSubtitle(s))
+                        .font(.nSans(12))
+                        .foregroundStyle(c.muted)
                 default:
                     Text(historyTimeAndTotal(s))
                         .font(.nSans(12))
@@ -1747,6 +1890,10 @@ struct StatsView: View {
                             .foregroundStyle(c.muted)
                     }
                 }
+            case .sleep:
+                Text(SleepView.formatHM(s.totalActiveMinutes))
+                    .font(.nSans(14, weight: .bold))
+                    .foregroundStyle(SleepView.sleepAccent)
             default:
                 VStack(alignment: .leading, spacing: 2) {
                     if s.leftMinutesResolved > 0 {
@@ -1776,6 +1923,13 @@ struct StatsView: View {
         let time = s.startTime.formatted(date: .omitted, time: .shortened)
         let side = s.pumpSide?.displayName ?? "Pump"
         return "\(time) · \(side)"
+    }
+
+    private func historySleepSubtitle(_ s: FeedingSession) -> String {
+        let start = s.startTime.formatted(date: .omitted, time: .shortened)
+        guard let end = s.endTime else { return start }
+        let endStr = end.formatted(date: .omitted, time: .shortened)
+        return "\(start) - \(endStr)"
     }
 
     private func formatMins(_ minutes: Int) -> String {

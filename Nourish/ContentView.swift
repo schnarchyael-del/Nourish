@@ -39,7 +39,9 @@ struct ContentView: View {
     }
 
     private var showTabBar: Bool {
-        !sessionStore.isActive && !pumpStore.isActive && !showLogScreen && !showPumpScreen && selectedTab != 1
+        // Hide the bar while a session is running or while the user is on
+        // the Log tab (which is its own immersive screen).
+        !sessionStore.isActive && !pumpStore.isActive && !showLogScreen && !showPumpScreen && selectedTab != NourishTab.log.rawValue
     }
 
     var body: some View {
@@ -121,7 +123,7 @@ struct ContentView: View {
 
         } else {
             switch selectedTab {
-            case 0:
+            case NourishTab.feed.rawValue:
                 HomeView(
                     store: sessionStore,
                     onLog: { showLogScreen = true },
@@ -129,18 +131,22 @@ struct ContentView: View {
                 )
                 .transition(Self.tabTransition)
 
-            case 1:
+            case NourishTab.sleep.rawValue:
+                SleepView()
+                    .transition(Self.tabTransition)
+
+            case NourishTab.log.rawValue:
                 LogSessionView(
-                    onBack: { selectedTab = 0 },
-                    onSave: { selectedTab = 0 }
+                    onBack: { selectedTab = NourishTab.feed.rawValue },
+                    onSave: { selectedTab = NourishTab.feed.rawValue }
                 )
                 .transition(Self.tabTransition)
 
-            case 2:
+            case NourishTab.stats.rawValue:
                 StatsView(onLogFirstSession: { showLogScreen = true })
                     .transition(Self.tabTransition)
 
-            case 3:
+            case NourishTab.settings.rawValue:
                 SettingsView()
                     .transition(Self.tabTransition)
 

@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 private enum SessionCategory {
-    case breast, bottle, pump
+    case breast, bottle, pump, sleep
 }
 
 struct LogSessionView: View {
@@ -25,6 +25,8 @@ struct LogSessionView: View {
     @State private var pumpLeftDurationMins: Int
     @State private var pumpRightDurationMins: Int
     @State private var pumpVolumeMl: Int
+    @State private var sleepFellAsleep: Date
+    @State private var sleepWokeUp:     Date
     @State private var notes: String
     @State private var showDurationError = false
 
@@ -43,6 +45,7 @@ struct LogSessionView: View {
             case .right:  category = .breast; startingSide = .right
             case .bottle: category = .bottle; startingSide = .left
             case .pump:   category = .pump;   startingSide = .left
+            case .sleep:  category = .sleep;  startingSide = .left
             }
             _sessionCategory    = State(initialValue: category)
             _breastStartingSide = State(initialValue: startingSide)
@@ -61,6 +64,9 @@ struct LogSessionView: View {
             _pumpLeftDurationMins  = State(initialValue: side == .right ? 0 : (side == .both ? total / 2 : total))
             _pumpRightDurationMins = State(initialValue: side == .left  ? 0 : (side == .both ? total - total / 2 : total))
             _pumpVolumeMl          = State(initialValue: s.pumpVolumeMl ?? 0)
+            let resolvedSleepEnd   = s.endTime ?? s.startTime.addingTimeInterval(60 * 60)
+            _sleepFellAsleep       = State(initialValue: s.feedType == .sleep ? s.startTime    : Calendar.current.date(byAdding: .hour, value: -1, to: .now) ?? .now)
+            _sleepWokeUp           = State(initialValue: s.feedType == .sleep ? resolvedSleepEnd : .now)
             _notes                 = State(initialValue: s.notes ?? "")
         } else {
             _sessionCategory    = State(initialValue: .breast)
@@ -75,6 +81,8 @@ struct LogSessionView: View {
             _pumpLeftDurationMins  = State(initialValue: 15)
             _pumpRightDurationMins = State(initialValue: 15)
             _pumpVolumeMl          = State(initialValue: 0)
+            _sleepFellAsleep       = State(initialValue: Calendar.current.date(byAdding: .hour, value: -1, to: .now) ?? .now)
+            _sleepWokeUp           = State(initialValue: .now)
             _notes                 = State(initialValue: "")
         }
     }
@@ -83,6 +91,7 @@ struct LogSessionView: View {
         switch sessionCategory {
         case .bottle: return .bottle
         case .pump:   return .pump
+        case .sleep:  return .sleep
         case .breast:
             if leftDurationMins > 0 && rightDurationMins == 0 { return .left }
             if rightDurationMins > 0 && leftDurationMins == 0 { return .right }
@@ -97,7 +106,12 @@ struct LogSessionView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     categorySection
                     contentFields
-                    startTimeSection
+                    if sessionCategory != .sleep {
+                        // Sleep has its own paired Fell asleep / Woke up
+                        // pickers in `sleepTimesSection` so the shared
+                        // single Start time row is redundant.
+                        startTimeSection
+                    }
                     notesSection
                     if showDurationError {
                         Text(validationErrorText)
@@ -151,10 +165,14 @@ struct LogSessionView: View {
     private var categorySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionLabel("Session type")
-            HStack(spacing: 10) {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                spacing: 10
+            ) {
                 categoryButton(.breast)
                 categoryButton(.bottle)
                 categoryButton(.pump)
+                categoryButton(.sleep)
             }
         }
         .padding(.bottom, 20)
@@ -168,9 +186,10 @@ struct LogSessionView: View {
         let emoji: String?
         let sfIcon: String?
         switch category {
-        case .breast: accent = c.leftAccent;   bg = c.leftBg;   label = "Breast"; emoji = nil;   sfIcon = nil
-        case .bottle: accent = c.bottleAccent; bg = c.bottleBg; label = "Bottle"; emoji = "🍼";  sfIcon = nil
-        case .pump:   accent = c.pumpAccent;   bg = c.pumpBg;   label = "Pump";   emoji = nil;   sfIcon = "fuelpump.fill"
+        case .breast: accent = c.leftAccent;   bg = c.leftBg;       label = "Breast"; emoji = nil;   sfIcon = nil
+        case .bottle: accent = c.bottleAccent; bg = c.bottleBg;     label = "Bottle"; emoji = "🍼";  sfIcon = nil
+        case .pump:   accent = c.pumpAccent;   bg = c.pumpBg;       label = "Pump";   emoji = nil;   sfIcon = "fuelpump.fill"
+        case .sleep:  accent = SleepView.sleepAccent; bg = SleepView.sleepBg; label = "Sleep"; emoji = "🌙"; sfIcon = nil
         }
         return Button {
             sessionCategory = category
@@ -219,6 +238,8 @@ struct LogSessionView: View {
             pumpSideSection
             pumpDurationSection
             pumpVolumeSection
+        case .sleep:
+            sleepTimesSection
         }
     }
 
@@ -464,6 +485,53 @@ struct LogSessionView: View {
         .padding(.bottom, 18)
     }
 
+    // MARK: Sleep times (Fell asleep + Woke up + read-only Duration)
+
+    private var sleepTimesSection: some View {
+        VStack(spacing: 14) {
+            sleepTimeRow(label: "Fell asleep", date: $sleepFellAsleep)
+            sleepTimeRow(label: "Woke up",     date: $sleepWokeUp)
+            sleepDurationDisplay
+        }
+        .padding(.bottom, 18)
+    }
+
+    private func sleepTimeRow(label: String, date: Binding<Date>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel(label)
+            DatePicker("", selection: date, in: ...Date.now, displayedComponents: [.date, .hourAndMinute])
+                .datePickerStyle(.compact)
+                .labelsHidden()
+                .tint(SleepView.sleepAccent)
+                .colorScheme(.light)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .frame(height: 52)
+                .background(c.input)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.border, lineWidth: 1))
+        }
+    }
+
+    private var sleepDurationDisplay: some View {
+        let secs = max(0, Int(sleepWokeUp.timeIntervalSince(sleepFellAsleep)))
+        let mins = secs / 60
+        let valid = secs > 0
+        return HStack {
+            sectionLabel("Duration")
+            Spacer()
+            Text(valid ? SleepView.formatHM(mins) : "—")
+                .font(.nSans(15, weight: .bold))
+                .foregroundStyle(valid ? SleepView.sleepAccent : c.muted)
+                .contentTransition(.numericText())
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(c.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(c.border, lineWidth: 1))
+    }
+
     // MARK: Start time
 
     private var startTimeSection: some View {
@@ -511,30 +579,54 @@ struct LogSessionView: View {
     // MARK: Save button
 
     private var saveButton: some View {
+        if sessionCategory == .sleep {
+            // Soft lavender treatment so sleep matches the bottle/pump
+            // button energy rather than blasting bold purple.
+            return AnyView(
+                Button(action: saveSession) {
+                    Text(editing == nil ? "Save session" : "Save changes")
+                        .font(.nSans(17, weight: .bold))
+                        .foregroundStyle(SleepView.sleepAccent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(SleepView.sleepBg)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(SleepView.sleepBorder, lineWidth: 1.5))
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .padding(.top, 6)
+            )
+        }
         let accent: Color
         let shadow: Color
         switch sessionCategory {
         case .breast: accent = c.leftAccent;   shadow = c.leftShadow
         case .bottle: accent = c.bottleAccent; shadow = c.bottleAccent.opacity(0.28)
         case .pump:   accent = c.pumpAccent;   shadow = c.pumpAccent.opacity(0.28)
+        case .sleep:  accent = SleepView.sleepAccent; shadow = .clear   // unreachable; handled above
         }
-        return Button(action: saveSession) {
-            Text(editing == nil ? "Save session" : "Save changes")
-                .font(.nSans(18, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 58)
-                .background(accent)
-                .clipShape(Capsule())
-                .shadow(color: shadow, radius: 10, y: 4)
-        }
-        .buttonStyle(ScaleButtonStyle())
-        .padding(.top, 6)
+        return AnyView(
+            Button(action: saveSession) {
+                Text(editing == nil ? "Save session" : "Save changes")
+                    .font(.nSans(18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(accent)
+                    .clipShape(Capsule())
+                    .shadow(color: shadow, radius: 10, y: 4)
+            }
+            .buttonStyle(ScaleButtonStyle())
+            .padding(.top, 6)
+        )
     }
 
     private var validationErrorText: String {
         if sessionCategory == .bottle && bottleContentType == nil {
             return "Pick Formula or Breast milk to save this session 🍼"
+        }
+        if sessionCategory == .sleep {
+            return "Woke up must be after fell asleep 🌙"
         }
         return "Add at least 1 min to save this session 🌸"
     }
@@ -556,6 +648,11 @@ struct LogSessionView: View {
             }
         case .bottle:
             if bottleContentType == nil {
+                withAnimation { showDurationError = true }
+                return
+            }
+        case .sleep:
+            if sleepWokeUp.timeIntervalSince(sleepFellAsleep) < 60 {
                 withAnimation { showDurationError = true }
                 return
             }
@@ -597,6 +694,16 @@ struct LogSessionView: View {
                 editing.rightDurationMins = nil
                 editing.bottleContentType = nil
                 editing.bottleAmountMl    = nil
+            case .sleep:
+                editing.feedType          = .sleep
+                editing.startTime         = sleepFellAsleep
+                editing.endTime           = sleepWokeUp
+                editing.leftDurationMins  = nil
+                editing.rightDurationMins = nil
+                editing.bottleContentType = nil
+                editing.bottleAmountMl    = nil
+                editing.pumpSide          = nil
+                editing.pumpVolumeMl      = nil
             }
             target = editing
         } else {
@@ -634,6 +741,13 @@ struct LogSessionView: View {
                     pumpVolumeMl: pumpVolumeMl > 0 ? pumpVolumeMl : nil,
                     notes: notes.isEmpty ? nil : notes
                 )
+            case .sleep:
+                session = FeedingSession(
+                    startTime: sleepFellAsleep,
+                    feedType: .sleep,
+                    endTime: sleepWokeUp,
+                    notes: notes.isEmpty ? nil : notes
+                )
             }
             modelContext.insert(session)
             target = session
@@ -666,6 +780,9 @@ struct LogSessionView: View {
                     durationSeconds: totalSecs,
                     volumeMl: pumpVolumeMl > 0 ? pumpVolumeMl : nil
                 )
+            case .sleep:
+                let dur = max(0, Int(sleepWokeUp.timeIntervalSince(sleepFellAsleep)))
+                AnalyticsService.sleepEnded(durationSeconds: dur)
             }
         }
 

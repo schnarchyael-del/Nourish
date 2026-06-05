@@ -6,6 +6,7 @@ enum FeedType: String, Codable, CaseIterable {
     case right   = "right"
     case bottle  = "bottle"
     case pump    = "pump"
+    case sleep   = "sleep"
 
     var displayName: String {
         switch self {
@@ -13,6 +14,7 @@ enum FeedType: String, Codable, CaseIterable {
         case .right:  "Right"
         case .bottle: "Bottle"
         case .pump:   "Pump"
+        case .sleep:  "Sleep"
         }
     }
 
@@ -22,6 +24,7 @@ enum FeedType: String, Codable, CaseIterable {
         case .right:  "R"
         case .bottle: "B"
         case .pump:   "P"
+        case .sleep:  "S"
         }
     }
 }
@@ -126,13 +129,13 @@ final class FeedingSession {
 
     var durationMinutes: Int { durationSeconds / 60 }
 
-    /// Active feeding time. Breast sessions sum left+right minutes; pump and
-    /// bottle sessions use wall-clock duration (left/right split is not
-    /// applicable to either).
+    /// Active feeding time. Breast sessions sum left+right minutes; pump,
+    /// bottle, and sleep sessions use wall-clock duration (left/right split
+    /// is not applicable to any of them).
     var totalActiveMinutes: Int {
         switch feedType {
-        case .pump, .bottle: return durationMinutes
-        case .left, .right:  return leftMinutesResolved + rightMinutesResolved
+        case .pump, .bottle, .sleep: return durationMinutes
+        case .left, .right:          return leftMinutesResolved + rightMinutesResolved
         }
     }
 
@@ -158,13 +161,13 @@ final class FeedingSession {
     }
 
     var leftMinutesResolved: Int {
-        if feedType == .bottle || feedType == .pump { return 0 }
+        if feedType == .bottle || feedType == .pump || feedType == .sleep { return 0 }
         if let m = leftDurationMins { return m }
         return feedType == .left ? durationMinutes : 0
     }
 
     var rightMinutesResolved: Int {
-        if feedType == .bottle || feedType == .pump { return 0 }
+        if feedType == .bottle || feedType == .pump || feedType == .sleep { return 0 }
         if let m = rightDurationMins { return m }
         return feedType == .right ? durationMinutes : 0
     }

@@ -59,6 +59,16 @@ enum AnalyticsService {
         log("pump_session_completed", params)
     }
 
+    // MARK: Sleep
+
+    static func sleepStarted() {
+        log("sleep_started")
+    }
+
+    static func sleepEnded(durationSeconds: Int) {
+        log("sleep_ended", ["duration_seconds": durationSeconds])
+    }
+
     // MARK: Feature usage
 
     static func exportCSV() {
