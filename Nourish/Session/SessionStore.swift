@@ -48,12 +48,11 @@ final class SessionStore {
 
     init() {
         recoverSession()
-        // If recovery didn't restore a session but the widget snapshot still
-        // claims one is active (e.g. force-quit mid-session, never reopened
-        // until now), clear it so the widget doesn't get stuck on
-        // "Feeding now" indefinitely.
+        // CRITICAL: do NOT touch shared widget keys here. The WidgetEndProcessor
+        // runs from NourishApp.onAppear (i.e. AFTER this init) and needs the
+        // shared keys intact to save the FeedingSession with correct splits.
+        // If we cleared them here, the processor would find startTs=0 and bail.
         if !isActive {
-            SharedFeedSnapshot.clearActiveSession()
             UIApplication.shared.isIdleTimerDisabled = false
         } else {
             // App just came back with an in-progress session — the widget may
@@ -87,26 +86,47 @@ final class SessionStore {
               let d = UserDefaults(suiteName: "group.com.yael.nourish")
         else { return }
 
-        // 1. End — widget intent flagged it. Drop in-memory state without
-        //    saving (the processor already saved a FeedingSession).
+        // 1. End — widget intent flagged it. Clear in-memory ONLY. The
+        //    WidgetEndProcessor (runs from NourishApp.onAppear / scenePhase /
+        //    Darwin) reads the shared keys to create the FeedingSession,
+        //    THEN clears them. If we cleared shared here, the processor
+        //    would see startTs=0 and silently drop the session.
         if d.bool(forKey: "widget.sessionEndedFromWidget") || !d.bool(forKey: "widget.isSessionActive") {
-            cancel()
+            clearInMemoryOnly()
             return
         }
 
-        // 2. Switch — adopt shared side + accumulators directly.
+        // 2. Switch — adopt shared side + accumulators verbatim. The widget
+        //    SwitchSideIntent already committed the previous segment to the
+        //    correct accumulator before flipping, so reading those values
+        //    here gives us the truth. We just need to compute the NEW side's
+        //    segment-started marker so the in-app timer ticks from the
+        //    correct elapsed time (not from 0).
         if let raw = d.string(forKey: "widget.activeSessionSide"),
            let widgetSide = FeedSide(rawValue: raw),
            let here = currentSide,
            widgetSide != here {
-            // Adopt the shared accumulators verbatim. SwitchSideIntent
-            // already committed the previous segment when it ran.
             stopTimer()
             currentSide = widgetSide
             leftActiveSeconds  = d.integer(forKey: "widget.leftAccumulatedSeconds")
             rightActiveSeconds = d.integer(forKey: "widget.rightAccumulatedSeconds")
-            // Reset the segment marker so the new segment counts from 0.
-            currentSideStartedAtElapsed = elapsedSeconds
+
+            // How long has the new side been running since the widget switch?
+            // — Use the frozen value if currently paused (widget froze it).
+            // — Otherwise compute from now − shared sideStart.
+            let nowTs = Date.now.timeIntervalSince1970
+            let sharedSideStart = d.double(forKey: "widget.activeSessionSideStart")
+            let pausedSec       = d.integer(forKey: "widget.activeSessionPausedSideSeconds")
+            let segmentSec: Int = {
+                if pausedSec > 0 { return pausedSec }
+                guard sharedSideStart > 0 else { return 0 }
+                return max(0, Int(nowTs - sharedSideStart))
+            }()
+            // currentSideStartedAtElapsed lives in "elapsed since session
+            // start" units. elapsedSeconds is the current value of that.
+            // Subtract segmentSec so `currentSideSeconds` (elapsed − marker)
+            // returns the right thing.
+            currentSideStartedAtElapsed = max(0, elapsedSeconds - segmentSec)
             persist()
             startTimer()
         }
@@ -119,6 +139,17 @@ final class SessionStore {
         } else if !widgetIsPaused, isPaused {
             resume()
         }
+    }
+
+    /// Tear down the in-memory session state WITHOUT touching shared
+    /// UserDefaults (the WidgetEndProcessor owns those keys). Used by the
+    /// "widget ended the session" absorb path.
+    private func clearInMemoryOnly() {
+        stopTimer()
+        clearPersisted()            // session_* are local-only, safe to clear
+        reset()
+        NotificationManager.shared.cancelSessionAlarm()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     // MARK: Public API

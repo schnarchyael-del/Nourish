@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import Combine
 
 /// Sleep tab. Two states:
 /// - Awake: card + big "Baby fell asleep" CTA + today's nap list
@@ -84,10 +85,13 @@ struct SleepView: View {
                 tooltips.show(.sleepTab)
             }
         }
-        // Realtime sync — when the widget's EndSleep intent fires while
-        // this view is on-screen, the timer card should immediately flip
-        // to the "awake" state without waiting for a foreground transition.
+        // Realtime sync — same belt-and-suspenders pattern as ActiveSessionView.
+        // Darwin notification is the fast lane; 1Hz polling is the safety net
+        // in case the widget-process notification gets dropped.
         .onReceive(NotificationCenter.default.publisher(for: WidgetSyncBridge.changed)) { _ in
+            absorbWidgetSleepEnd()
+        }
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
             absorbWidgetSleepEnd()
         }
     }

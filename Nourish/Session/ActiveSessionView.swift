@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import AudioToolbox
 import AVFoundation
+import Combine
 
 struct ActiveSessionView: View {
     @Environment(\.nourishColors) private var c
@@ -141,12 +142,16 @@ struct ActiveSessionView: View {
             // Side switched — re-arm so the new side gets its own X-min window.
             alarmFired = false
         }
-        // Realtime widget→app sync. When the user taps Pause / Switch / End
-        // on a home or lock-screen widget while this view is on-screen, the
-        // widget intent updates shared UserDefaults and Darwin-broadcasts.
-        // We absorb that change immediately so the timer / side label / "ended"
-        // dismiss happen in lockstep with the widget refresh.
+        // Realtime widget→app sync. The Darwin-notification path is the
+        // fast lane (sub-100ms when it works), but it can drop in real-world
+        // iOS conditions (rate limiting, suspended widget process, app
+        // background → foreground races). Belt-and-suspenders: poll the
+        // shared snapshot once a second while this view is visible.
+        // `absorbWidgetMutations` is idempotent, so double-firing is harmless.
         .onReceive(NotificationCenter.default.publisher(for: WidgetSyncBridge.changed)) { _ in
+            store.absorbWidgetMutations()
+        }
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
             store.absorbWidgetMutations()
         }
         .overlay {
