@@ -41,6 +41,22 @@ enum SharedFeedSnapshot {
         // The widget composes its own elapsed string from `now - sleepStartedAt`.
         static let isBabySleeping        = "widget.isBabySleeping"
         static let sleepStartedAt        = "widget.sleepStartedAt"
+
+        // Single-source-of-truth additions for widget-driven mutations.
+        // Without these, widget intents would have no idea what the
+        // SessionStore's per-side accumulators actually contain.
+        static let leftAccumSeconds      = "widget.leftAccumulatedSeconds"
+        static let rightAccumSeconds     = "widget.rightAccumulatedSeconds"
+        static let startSide             = "widget.activeSessionStartSide"
+
+        // End-of-session flags set by widget intents. The app reads these on
+        // launch / foreground / Darwin notification and translates them into
+        // a real SwiftData FeedingSession — using the shared accumulators,
+        // never any data the intent itself computed.
+        static let sessionEndedFromWidget = "widget.sessionEndedFromWidget"
+        static let sessionEndTime         = "widget.sessionEndTime"
+        static let sleepEndedFromWidget   = "widget.sleepEndedFromWidget"
+        static let sleepEndTime           = "widget.sleepEndTime"
     }
 
     /// Mark a session as active in the shared snapshot and reload widgets.
@@ -56,18 +72,24 @@ enum SharedFeedSnapshot {
     ///     widget can show a static readout. Pass 0 when not paused.
     static func setActiveSession(
         sessionStart: Date,
+        startSide: String,
         currentSide: String,
         sideEffectiveStart: Date,
+        leftAccumulatedSeconds: Int,
+        rightAccumulatedSeconds: Int,
         pausedAt: Date? = nil,
         pausedSideSeconds: Int = 0
     ) {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
-        defaults.set(true,                                  forKey: Key.isSessionActive)
-        defaults.set(sessionStart.timeIntervalSince1970,    forKey: Key.activeSessionStart)
-        defaults.set(currentSide,                           forKey: Key.activeSessionSide)
+        defaults.set(true,                                     forKey: Key.isSessionActive)
+        defaults.set(sessionStart.timeIntervalSince1970,       forKey: Key.activeSessionStart)
+        defaults.set(startSide,                                forKey: Key.startSide)
+        defaults.set(currentSide,                              forKey: Key.activeSessionSide)
         defaults.set(sideEffectiveStart.timeIntervalSince1970, forKey: Key.activeSessionSideStart)
-        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0,  forKey: Key.activePausedAt)
-        defaults.set(pausedSideSeconds,                     forKey: Key.activeSessionPausedSideSeconds)
+        defaults.set(leftAccumulatedSeconds,                   forKey: Key.leftAccumSeconds)
+        defaults.set(rightAccumulatedSeconds,                  forKey: Key.rightAccumSeconds)
+        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0,     forKey: Key.activePausedAt)
+        defaults.set(pausedSideSeconds,                        forKey: Key.activeSessionPausedSideSeconds)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -85,6 +107,8 @@ enum SharedFeedSnapshot {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
         defaults.set(false, forKey: Key.isBabySleeping)
         defaults.removeObject(forKey: Key.sleepStartedAt)
+        defaults.set(false, forKey: Key.sleepEndedFromWidget)
+        defaults.removeObject(forKey: Key.sleepEndTime)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -93,10 +117,15 @@ enum SharedFeedSnapshot {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
         defaults.set(false, forKey: Key.isSessionActive)
         defaults.removeObject(forKey: Key.activeSessionStart)
+        defaults.removeObject(forKey: Key.startSide)
         defaults.removeObject(forKey: Key.activeSessionSide)
         defaults.removeObject(forKey: Key.activeSessionSideStart)
         defaults.removeObject(forKey: Key.activeSessionPausedSideSeconds)
         defaults.removeObject(forKey: Key.activePausedAt)
+        defaults.removeObject(forKey: Key.leftAccumSeconds)
+        defaults.removeObject(forKey: Key.rightAccumSeconds)
+        defaults.set(false, forKey: Key.sessionEndedFromWidget)
+        defaults.removeObject(forKey: Key.sessionEndTime)
         WidgetCenter.shared.reloadAllTimelines()
     }
 

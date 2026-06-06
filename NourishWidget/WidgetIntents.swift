@@ -10,12 +10,19 @@ private func sharedDefaults() -> UserDefaults? {
     UserDefaults(suiteName: suiteName)
 }
 
-// Order of operations inside every perform():
-//   1. Update the user-visible state in shared UserDefaults
-//   2. WidgetCenter.shared.reloadAllTimelines()  ← refresh the widget NOW
-//   3. Append the action to the persistence queue (for the app to drain
-//      on next foreground — SwiftData + Firestore writes happen there,
-//      never inside the intent)
+// MARK: - Architecture
+//
+// Shared UserDefaults (group.com.yael.nourish) is the SINGLE source of truth
+// for active session state. The app and the widget extension both read and
+// write through it. Intents NEVER touch SwiftData or Firestore directly —
+// those side effects happen exclusively on the app side when it sees a state
+// change (via Darwin notification or scene-phase). This avoids divergence,
+// race conditions, and ghost sessions caused by partial computations.
+//
+// Order inside every perform():
+//   1. Mutate shared UserDefaults (the source of truth)
+//   2. WidgetCenter.shared.reloadAllTimelines()   ← refresh widget NOW
+//   3. WidgetSyncBridge.postChanged()             ← ping the app NOW
 
 // MARK: - End Sleep
 
@@ -27,25 +34,16 @@ struct EndSleepIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         guard let d = sharedDefaults() else { return .result() }
-        let startTs = d.double(forKey: "widget.sleepStartedAt")
+        let now = Date.now.timeIntervalSince1970
 
-        // 1. Update visible state.
+        // Flip the sleep flag + record when it happened. The app reads
+        // these on next active and saves the nap as a FeedingSession.
         d.set(false, forKey: "widget.isBabySleeping")
-        d.removeObject(forKey: "widget.sleepStartedAt")
+        d.set(true,  forKey: "widget.sleepEndedFromWidget")
+        d.set(now,   forKey: "widget.sleepEndTime")
 
-        // 2. Refresh widgets + ping the app (if it's running) so it can
-        //    reconcile its in-memory state in real time.
         WidgetCenter.shared.reloadAllTimelines()
         WidgetSyncBridge.postChanged()
-
-        // 3. Queue for app to persist on next foreground.
-        if startTs > 0 {
-            WidgetActionQueue.append(WidgetAction(
-                kind: .endSleep,
-                timestamp: Date.now.timeIntervalSince1970,
-                sleepStartTs: startTs
-            ))
-        }
         return .result()
     }
 }
@@ -60,35 +58,24 @@ struct EndFeedIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         guard let d = sharedDefaults() else { return .result() }
-        let startTs    = d.double(forKey: "widget.activeSessionStart")
-        let currentSide = d.string(forKey: "widget.activeSessionSide") ?? ""
-        let (left, right) = currentSideMinutes(from: d)
+        let now = Date.now.timeIntervalSince1970
 
-        // 1. Clear visible state.
+        // Don't compute splits or save anything here — the widget process
+        // only has partial state. Just record that the session ended.
+        // The app's WidgetEndProcessor will use the FULL shared state
+        // (accumulators + start side + current side's pending segment)
+        // to create an accurate FeedingSession.
         d.set(false, forKey: "widget.isSessionActive")
-        d.removeObject(forKey: "widget.activeSessionStart")
-        d.removeObject(forKey: "widget.activeSessionSide")
-        d.removeObject(forKey: "widget.activeSessionSideStart")
-        d.removeObject(forKey: "widget.activeSessionPausedSideSeconds")
-        d.removeObject(forKey: "widget.activeSessionPausedAt")
+        d.set(true,  forKey: "widget.sessionEndedFromWidget")
+        d.set(now,   forKey: "widget.sessionEndTime")
+        // Clear timer-display fields so the widget reverts to "last feed"
+        // mode. The accumulator + start/side fields are intentionally kept
+        // so the app has the data it needs to save the session.
+        d.set(0.0, forKey: "widget.activeSessionPausedAt")
+        d.set(0,   forKey: "widget.activeSessionPausedSideSeconds")
 
-        // 2. Refresh widgets + ping the app (if it's running) so it can
-        //    reconcile its in-memory state in real time.
         WidgetCenter.shared.reloadAllTimelines()
         WidgetSyncBridge.postChanged()
-
-        // 3. Queue.
-        if startTs > 0 {
-            WidgetActionQueue.append(WidgetAction(
-                kind: .endFeed,
-                timestamp: Date.now.timeIntervalSince1970,
-                leftMinutes: left,
-                rightMinutes: right,
-                newSide: nil,
-                feedStartTs: startTs,
-                currentSide: currentSide
-            ))
-        }
         return .result()
     }
 }
@@ -106,10 +93,9 @@ struct PauseFeedIntent: AppIntent {
         let pausedAt = d.double(forKey: "widget.activeSessionPausedAt")
         let now = Date.now
 
-        // 1. Toggle visible state.
         if pausedAt > 0 {
-            // Resume — shift side-start forward by the pause duration so
-            // the live timer picks up where it left off.
+            // Resume — shift side-start forward by pause duration so the
+            // live timer picks up where it left off.
             let pauseDuration = now.timeIntervalSince1970 - pausedAt
             let sideStart = d.double(forKey: "widget.activeSessionSideStart")
             if sideStart > 0 {
@@ -127,16 +113,8 @@ struct PauseFeedIntent: AppIntent {
             d.set(now.timeIntervalSince1970, forKey: "widget.activeSessionPausedAt")
         }
 
-        // 2. Refresh widgets + ping the app (if it's running) so it can
-        //    reconcile its in-memory state in real time.
         WidgetCenter.shared.reloadAllTimelines()
         WidgetSyncBridge.postChanged()
-
-        // 3. Queue.
-        WidgetActionQueue.append(WidgetAction(
-            kind: .pauseToggleFeed,
-            timestamp: now.timeIntervalSince1970
-        ))
         return .result()
     }
 }
@@ -154,44 +132,34 @@ struct SwitchSideIntent: AppIntent {
         let currentSide = d.string(forKey: "widget.activeSessionSide") ?? "left"
         let newSide = (currentSide == "left") ? "right" : "left"
         let now = Date.now
-        let (left, right) = currentSideMinutes(from: d)
 
-        // 1. Flip side; reset the per-side virtual clock.
-        d.set(now.timeIntervalSince1970, forKey: "widget.activeSessionSideStart")
+        // Compute the current segment's elapsed seconds and COMMIT them to
+        // the appropriate accumulator. This is what keeps L/R totals
+        // accurate when the user switches from the widget.
+        let sideStart = d.double(forKey: "widget.activeSessionSideStart")
+        let pausedSec = d.integer(forKey: "widget.activeSessionPausedSideSeconds")
+        let segmentSec: Int = {
+            if pausedSec > 0 { return pausedSec }      // session was paused — segment is frozen
+            guard sideStart > 0 else { return 0 }
+            return max(0, Int(now.timeIntervalSince1970 - sideStart))
+        }()
+
+        if currentSide == "left" {
+            let left = d.integer(forKey: "widget.leftAccumulatedSeconds")
+            d.set(left + segmentSec, forKey: "widget.leftAccumulatedSeconds")
+        } else {
+            let right = d.integer(forKey: "widget.rightAccumulatedSeconds")
+            d.set(right + segmentSec, forKey: "widget.rightAccumulatedSeconds")
+        }
+
+        // Flip the side and reset the segment clock.
         d.set(newSide,                   forKey: "widget.activeSessionSide")
+        d.set(now.timeIntervalSince1970, forKey: "widget.activeSessionSideStart")
         d.set(0.0, forKey: "widget.activeSessionPausedAt")
         d.set(0,   forKey: "widget.activeSessionPausedSideSeconds")
 
-        // 2. Refresh widgets + ping the app (if it's running) so it can
-        //    reconcile its in-memory state in real time.
         WidgetCenter.shared.reloadAllTimelines()
         WidgetSyncBridge.postChanged()
-
-        // 3. Queue.
-        WidgetActionQueue.append(WidgetAction(
-            kind: .switchSide,
-            timestamp: now.timeIntervalSince1970,
-            leftMinutes: left,
-            rightMinutes: right,
-            newSide: newSide
-        ))
         return .result()
     }
-}
-
-// MARK: - Shared helper
-
-private func currentSideMinutes(from d: UserDefaults) -> (left: Int, right: Int) {
-    let sideStart = d.double(forKey: "widget.activeSessionSideStart")
-    let pausedSec = d.integer(forKey: "widget.activeSessionPausedSideSeconds")
-    let side      = d.string(forKey: "widget.activeSessionSide") ?? "left"
-
-    let elapsedSec: Int = {
-        if pausedSec > 0 { return pausedSec }
-        guard sideStart > 0 else { return 0 }
-        return max(0, Int(Date.now.timeIntervalSince1970 - sideStart))
-    }()
-    let mins = elapsedSec / 60
-
-    return side == "left" ? (mins, 0) : (0, mins)
 }

@@ -70,46 +70,54 @@ final class SessionStore {
         }
     }
 
-    /// Reconcile the in-memory session state with whatever the widget
-    /// extension wrote into the shared snapshot while we were backgrounded.
-    /// Shared UserDefaults is the single source of truth — if it disagrees
-    /// with our in-memory state, we always defer to the shared value
-    /// (widget tap fired last; in-memory state is stale).
+    /// Reconcile the in-memory session state with shared UserDefaults
+    /// (the single source of truth). Always defer to the shared value
+    /// when there's any disagreement.
     ///
     /// Handles all three widget-driven mutations:
-    ///   • End  — shared cleared `isSessionActive` → we cancel() in-memory
-    ///   • Pause/Resume — shared flipped `pausedAt` → we call pause()/resume()
-    ///   • Switch — shared swapped `activeSessionSide` → we call switchSide()
+    ///   • End — shared set `sessionEndedFromWidget`. The WidgetEndProcessor
+    ///     already created the FeedingSession from the shared accumulators;
+    ///     we just need to drop the in-memory state.
+    ///   • Pause/Resume — sync isPaused from `widget.activeSessionPausedAt`.
+    ///   • Switch — copy the new side + accumulators from shared verbatim
+    ///     (don't call switchSide(), which would double-count by adding
+    ///     its own segment commit on top of what the widget already did).
     func absorbWidgetMutations() {
         guard isActive,
               let d = UserDefaults(suiteName: "group.com.yael.nourish")
         else { return }
 
-        // 1. End. If the widget cleared the active flag, the queue already
-        //    has an `endFeed` action that the drainer will turn into a
-        //    proper FeedingSession. We just need to scrub in-memory state
-        //    so the app doesn't keep rendering an active session screen.
-        let widgetIsActive = d.bool(forKey: "widget.isSessionActive")
-        if !widgetIsActive {
+        // 1. End — widget intent flagged it. Drop in-memory state without
+        //    saving (the processor already saved a FeedingSession).
+        if d.bool(forKey: "widget.sessionEndedFromWidget") || !d.bool(forKey: "widget.isSessionActive") {
             cancel()
             return
         }
 
-        // 2. Pause / resume.
+        // 2. Switch — adopt shared side + accumulators directly.
+        if let raw = d.string(forKey: "widget.activeSessionSide"),
+           let widgetSide = FeedSide(rawValue: raw),
+           let here = currentSide,
+           widgetSide != here {
+            // Adopt the shared accumulators verbatim. SwitchSideIntent
+            // already committed the previous segment when it ran.
+            stopTimer()
+            currentSide = widgetSide
+            leftActiveSeconds  = d.integer(forKey: "widget.leftAccumulatedSeconds")
+            rightActiveSeconds = d.integer(forKey: "widget.rightAccumulatedSeconds")
+            // Reset the segment marker so the new segment counts from 0.
+            currentSideStartedAtElapsed = elapsedSeconds
+            persist()
+            startTimer()
+        }
+
+        // 3. Pause / resume.
         let widgetPausedAt = d.double(forKey: "widget.activeSessionPausedAt")
         let widgetIsPaused = widgetPausedAt > 0
         if widgetIsPaused, !isPaused {
             pause()
         } else if !widgetIsPaused, isPaused {
             resume()
-        }
-
-        // 3. Switch side.
-        if let raw = d.string(forKey: "widget.activeSessionSide"),
-           let widgetSide = FeedSide(rawValue: raw),
-           let here = currentSide,
-           widgetSide != here {
-            switchSide()
         }
     }
 
@@ -415,19 +423,31 @@ final class SessionStore {
         }
     }
 
-    /// Push the current active-session state to the widget snapshot.
-    /// Writes the CURRENT side (not start side) and a virtual effective-start
-    /// date that makes the widget's .timer display show this side's total time.
+    /// Push the FULL active-session state to the shared snapshot. Shared
+    /// UserDefaults is the single source of truth — every widget intent
+    /// reads from these keys and the app's `WidgetEndProcessor` saves
+    /// FeedingSession entries from them when the widget ends a session.
+    /// Anything not written here is invisible to the widget process.
     private func publishActiveSnapshot() {
-        guard let sessionStart = sessionStartDate, let side = currentSide else { return }
+        guard let sessionStart = sessionStartDate,
+              let side = currentSide,
+              let startS = startSide
+        else { return }
         let sideSecs = currentSideSeconds
         // Virtual start: a date such that (now - sideEffectiveStart) == sideSecs.
         // Widget uses Text(sideEffectiveStart, style: .timer) for live display.
         let sideEffectiveStart = Date.now.addingTimeInterval(-TimeInterval(sideSecs))
         SharedFeedSnapshot.setActiveSession(
             sessionStart: sessionStart,
+            startSide: startS.rawValue,
             currentSide: side.rawValue,
             sideEffectiveStart: sideEffectiveStart,
+            // Committed-only accumulators. The CURRENT segment's elapsed
+            // time is NOT included — widgets compute that from the virtual
+            // sideEffectiveStart so the live timer ticks correctly. Adding
+            // current segment to these would double-count.
+            leftAccumulatedSeconds: leftActiveSeconds,
+            rightAccumulatedSeconds: rightActiveSeconds,
             pausedAt: pauseStartDate,
             pausedSideSeconds: isPaused ? sideSecs : 0
         )
