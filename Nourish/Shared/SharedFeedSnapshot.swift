@@ -34,7 +34,6 @@ enum SharedFeedSnapshot {
         // from previous segments on this side.
         static let activeSessionSideStart      = "widget.activeSessionSideStart"
         // Frozen side-elapsed seconds written only when pausing; cleared on resume.
-        static let activeSessionPausedSideSeconds = "widget.activeSessionPausedSideSeconds"
         // Pause timestamp (non-zero = paused).
         static let activePausedAt        = "widget.activeSessionPausedAt"
         // Sleep — written when "Baby fell asleep" is tapped; cleared on "Baby woke up".
@@ -62,34 +61,34 @@ enum SharedFeedSnapshot {
     /// Mark a session as active in the shared snapshot and reload widgets.
     ///
     /// - Parameters:
-    ///   - sessionStart: True wall-clock start of the session (used for stale check).
-    ///   - currentSide: The side currently being fed ("left" or "right").
-    ///   - sideEffectiveStart: Virtual start date such that `now − sideEffectiveStart`
-    ///     equals the total accumulated seconds on `currentSide`. Used by the widget's
-    ///     `.timer` style to show per-side elapsed time.
-    ///   - pausedAt: The moment the session was paused, or `nil` if not paused.
-    ///   - pausedSideSeconds: Frozen side-elapsed seconds written when pausing so the
-    ///     widget can show a static readout. Pass 0 when not paused.
+    ///   - sessionStart: Wall-clock session start (used for stale-session check).
+    ///   - currentSide: "left" / "right" — which side is being fed.
+    ///   - segmentStart: REAL wall-clock start of the in-flight segment, or
+    ///     nil when paused. Live Activity intents read this to compute the
+    ///     segment to commit on pause/switch/end.
+    ///   - leftAccumulatedSeconds / rightAccumulatedSeconds: TOTAL committed
+    ///     time on each side, including any segment committed by pause.
+    ///   - pausedAt: Moment paused, or nil when running.
     static func setActiveSession(
         sessionStart: Date,
         startSide: String,
         currentSide: String,
-        sideEffectiveStart: Date,
+        segmentStart: Date?,
         leftAccumulatedSeconds: Int,
         rightAccumulatedSeconds: Int,
-        pausedAt: Date? = nil,
-        pausedSideSeconds: Int = 0
+        pausedAt: Date? = nil
     ) {
         guard let defaults = UserDefaults(suiteName: Key.suiteName) else { return }
-        defaults.set(true,                                     forKey: Key.isSessionActive)
-        defaults.set(sessionStart.timeIntervalSince1970,       forKey: Key.activeSessionStart)
-        defaults.set(startSide,                                forKey: Key.startSide)
-        defaults.set(currentSide,                              forKey: Key.activeSessionSide)
-        defaults.set(sideEffectiveStart.timeIntervalSince1970, forKey: Key.activeSessionSideStart)
-        defaults.set(leftAccumulatedSeconds,                   forKey: Key.leftAccumSeconds)
-        defaults.set(rightAccumulatedSeconds,                  forKey: Key.rightAccumSeconds)
-        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0,     forKey: Key.activePausedAt)
-        defaults.set(pausedSideSeconds,                        forKey: Key.activeSessionPausedSideSeconds)
+        defaults.set(true,                                       forKey: Key.isSessionActive)
+        defaults.set(sessionStart.timeIntervalSince1970,         forKey: Key.activeSessionStart)
+        defaults.set(startSide,                                  forKey: Key.startSide)
+        defaults.set(currentSide,                                forKey: Key.activeSessionSide)
+        // 0 ⇒ paused (no active segment). Otherwise wall-clock segment start.
+        defaults.set(segmentStart?.timeIntervalSince1970 ?? 0,   forKey: Key.activeSessionSideStart)
+        defaults.set(leftAccumulatedSeconds,                     forKey: Key.leftAccumSeconds)
+        defaults.set(rightAccumulatedSeconds,                    forKey: Key.rightAccumSeconds)
+        defaults.set(pausedAt?.timeIntervalSince1970 ?? 0,       forKey: Key.activePausedAt)
+        defaults.set(Date.now.timeIntervalSince1970,             forKey: "widget.snapshotVersion")
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -120,8 +119,8 @@ enum SharedFeedSnapshot {
         defaults.removeObject(forKey: Key.startSide)
         defaults.removeObject(forKey: Key.activeSessionSide)
         defaults.removeObject(forKey: Key.activeSessionSideStart)
-        defaults.removeObject(forKey: Key.activeSessionPausedSideSeconds)
         defaults.removeObject(forKey: Key.activePausedAt)
+        defaults.set(Date.now.timeIntervalSince1970, forKey: "widget.snapshotVersion")
         defaults.removeObject(forKey: Key.leftAccumSeconds)
         defaults.removeObject(forKey: Key.rightAccumSeconds)
         defaults.set(false, forKey: Key.sessionEndedFromWidget)
@@ -191,8 +190,8 @@ enum SharedFeedSnapshot {
             Key.lastFeedBottleMl, Key.todaySessionCount, Key.todayTotalMinutes,
             Key.todayLeftMinutes, Key.todayRightMinutes,
             Key.isSessionActive, Key.activeSessionStart, Key.activeSessionSide,
-            Key.activeSessionSideStart, Key.activeSessionPausedSideSeconds,
-            Key.activePausedAt,
+            Key.activeSessionSideStart, Key.activePausedAt,
+            Key.leftAccumSeconds, Key.rightAccumSeconds,
         ] {
             defaults.removeObject(forKey: key)
         }

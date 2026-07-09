@@ -1,6 +1,9 @@
 import SwiftUI
 import Observation
 import UIKit
+import os.log
+
+private let sessionLog = Logger(subsystem: "com.yael.nourish", category: "SessionStore")
 
 @Observable
 final class SessionStore {
@@ -27,6 +30,17 @@ final class SessionStore {
     private var currentSideStartedAtElapsed: Int = 0
 
     private var timer: Timer? = nil
+    /// 1Hz polling timer that re-reads the shared App Group snapshot.
+    /// Brute-force fallback for cases where the NotificationCenter bridge
+    /// from LiveActivityIntent.perform() doesn't reach this observer
+    /// (foregrounding race, MainActor hop, etc.). Active only while a
+    /// session is running, so cost is negligible.
+    private var sharedPollTimer: Timer? = nil
+    /// `widget.snapshotVersion` value that the in-memory state already
+    /// reflects. Used by BOTH the foreground catch-up and the 1Hz poll so
+    /// neither path reconciles when nothing has actually changed — keeps
+    /// the live timer from stuttering on every app-open.
+    private var lastReconciledVersion: Double = 0
     private var sessionStartDate: Date? = nil
     private var pauseStartDate: Date? = nil
     private var accumulatedPausedSeconds: Int = 0
@@ -48,108 +62,38 @@ final class SessionStore {
 
     init() {
         recoverSession()
-        // CRITICAL: do NOT touch shared widget keys here. The WidgetEndProcessor
-        // runs from NourishApp.onAppear (i.e. AFTER this init) and needs the
-        // shared keys intact to save the FeedingSession with correct splits.
-        // If we cleared them here, the processor would find startTs=0 and bail.
-        if !isActive {
-            UIApplication.shared.isIdleTimerDisabled = false
+        // Overlay any newer widget-process writes the intents may have made
+        // while the app was killed. Reconcile is the canonical source —
+        // recoverSession only seeds in-memory state from session_* so the
+        // app can render its UI before the (synchronous) reconcile finishes.
+        reconcileFromSharedSnapshot()
+        // Side effects that depend on the FINAL state (post-reconcile).
+        if isActive {
+            if #available(iOS 16.2, *) { startOrUpdateLiveActivity() }
+            rescheduleSessionAlarmForCurrentSide()
+            UIApplication.shared.isIdleTimerDisabled = true
         } else {
-            // App just came back with an in-progress session — the widget may
-            // have mutated pause / side while we were backgrounded.
-            absorbWidgetMutations()
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.syncToWallClock()
-            self?.absorbWidgetMutations()
+            self?.handleForeground()
         }
-    }
-
-    /// Reconcile the in-memory session state with shared UserDefaults
-    /// (the single source of truth). Always defer to the shared value
-    /// when there's any disagreement.
-    ///
-    /// Handles all three widget-driven mutations:
-    ///   • End — shared set `sessionEndedFromWidget`. The WidgetEndProcessor
-    ///     already created the FeedingSession from the shared accumulators;
-    ///     we just need to drop the in-memory state.
-    ///   • Pause/Resume — sync isPaused from `widget.activeSessionPausedAt`.
-    ///   • Switch — copy the new side + accumulators from shared verbatim
-    ///     (don't call switchSide(), which would double-count by adding
-    ///     its own segment commit on top of what the widget already did).
-    func absorbWidgetMutations() {
-        guard isActive,
-              let d = UserDefaults(suiteName: "group.com.yael.nourish")
-        else { return }
-
-        // 1. End — widget intent flagged it. Clear in-memory ONLY. The
-        //    WidgetEndProcessor (runs from NourishApp.onAppear / scenePhase /
-        //    Darwin) reads the shared keys to create the FeedingSession,
-        //    THEN clears them. If we cleared shared here, the processor
-        //    would see startTs=0 and silently drop the session.
-        if d.bool(forKey: "widget.sessionEndedFromWidget") || !d.bool(forKey: "widget.isSessionActive") {
-            clearInMemoryOnly()
-            return
+        // Live Activity intents post this immediately after mutating the
+        // shared snapshot. Because LiveActivityIntent.perform() runs in the
+        // app process, an alive SessionStore receives this on main queue
+        // and reconciles its in-memory state in-line — UI re-renders via
+        // @Observable without any further plumbing.
+        NotificationCenter.default.addObserver(
+            forName: .liveActivityStateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reconcileFromSharedSnapshot()
         }
-
-        // 2. Switch — adopt shared side + accumulators verbatim. The widget
-        //    SwitchSideIntent already committed the previous segment to the
-        //    correct accumulator before flipping, so reading those values
-        //    here gives us the truth. We just need to compute the NEW side's
-        //    segment-started marker so the in-app timer ticks from the
-        //    correct elapsed time (not from 0).
-        if let raw = d.string(forKey: "widget.activeSessionSide"),
-           let widgetSide = FeedSide(rawValue: raw),
-           let here = currentSide,
-           widgetSide != here {
-            stopTimer()
-            currentSide = widgetSide
-            leftActiveSeconds  = d.integer(forKey: "widget.leftAccumulatedSeconds")
-            rightActiveSeconds = d.integer(forKey: "widget.rightAccumulatedSeconds")
-
-            // How long has the new side been running since the widget switch?
-            // — Use the frozen value if currently paused (widget froze it).
-            // — Otherwise compute from now − shared sideStart.
-            let nowTs = Date.now.timeIntervalSince1970
-            let sharedSideStart = d.double(forKey: "widget.activeSessionSideStart")
-            let pausedSec       = d.integer(forKey: "widget.activeSessionPausedSideSeconds")
-            let segmentSec: Int = {
-                if pausedSec > 0 { return pausedSec }
-                guard sharedSideStart > 0 else { return 0 }
-                return max(0, Int(nowTs - sharedSideStart))
-            }()
-            // currentSideStartedAtElapsed lives in "elapsed since session
-            // start" units. elapsedSeconds is the current value of that.
-            // Subtract segmentSec so `currentSideSeconds` (elapsed − marker)
-            // returns the right thing.
-            currentSideStartedAtElapsed = max(0, elapsedSeconds - segmentSec)
-            persist()
-            startTimer()
-        }
-
-        // 3. Pause / resume.
-        let widgetPausedAt = d.double(forKey: "widget.activeSessionPausedAt")
-        let widgetIsPaused = widgetPausedAt > 0
-        if widgetIsPaused, !isPaused {
-            pause()
-        } else if !widgetIsPaused, isPaused {
-            resume()
-        }
-    }
-
-    /// Tear down the in-memory session state WITHOUT touching shared
-    /// UserDefaults (the WidgetEndProcessor owns those keys). Used by the
-    /// "widget ended the session" absorb path.
-    private func clearInMemoryOnly() {
-        stopTimer()
-        clearPersisted()            // session_* are local-only, safe to clear
-        reset()
-        NotificationManager.shared.cancelSessionAlarm()
-        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     // MARK: Public API
@@ -180,18 +124,23 @@ final class SessionStore {
 
         // Push live state to widgets and keep the screen awake.
         publishActiveSnapshot()
+        startOrUpdateLiveActivity()
+        startSharedPolling()
         UIApplication.shared.isIdleTimerDisabled = true
     }
 
     func pause() {
         guard !isPaused else { return }
+        // Commit the in-flight segment so leftActiveSeconds/rightActiveSeconds
+        // include it. The Live Activity displays the accumulator value as
+        // the frozen time, so this commit makes the frozen value correct.
+        commitCurrentSegment()
         isPaused = true
         pauseStartDate = .now
         stopTimer()
         persist()
         publishActiveSnapshot()
-        // Cancel the background alarm; resume() will reschedule with the
-        // remaining current-side time.
+        updateLiveActivity()
         NotificationManager.shared.cancelSessionAlarm()
     }
 
@@ -203,9 +152,13 @@ final class SessionStore {
         pauseStartDate = nil
         isPaused = false
         syncToWallClock()
+        // Start a fresh segment relative to the current elapsedSeconds so
+        // accumulators stay correct on the next pause/switch.
+        currentSideStartedAtElapsed = elapsedSeconds
         persist()
         startTimer()
         publishActiveSnapshot()
+        updateLiveActivity()
         rescheduleSessionAlarmForCurrentSide()
     }
 
@@ -225,6 +178,7 @@ final class SessionStore {
         } else {
             persist()
             publishActiveSnapshot()
+            updateLiveActivity()
         }
         rescheduleSessionAlarmForCurrentSide()
     }
@@ -278,6 +232,8 @@ final class SessionStore {
         reset()
         NotificationManager.shared.cancelSessionAlarm()
         SharedFeedSnapshot.clearActiveSession()
+        if #available(iOS 16.2, *) { LiveActivityManager.shared.endFeed() }
+        stopSharedPolling()
         UIApplication.shared.isIdleTimerDisabled = false
         return (startTime, start.feedType, endTime, leftMins, rightMins)
     }
@@ -303,6 +259,8 @@ final class SessionStore {
         reset()
         NotificationManager.shared.cancelSessionAlarm()
         SharedFeedSnapshot.clearActiveSession()
+        if #available(iOS 16.2, *) { LiveActivityManager.shared.endFeed() }
+        stopSharedPolling()
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
@@ -444,14 +402,11 @@ final class SessionStore {
         syncToWallClock()
         if !isPaused { startTimer() }
 
-        // Recovered an in-progress session — re-enable the keep-awake flag,
-        // republish the active state, and reschedule the per-side alarm
-        // based on how long the current side has already been running.
-        if sessionStartDate != nil {
-            publishActiveSnapshot()
-            rescheduleSessionAlarmForCurrentSide()
-            UIApplication.shared.isIdleTimerDisabled = true
-        }
+        // NOTE: Intentionally do not call publishActiveSnapshot / start the
+        // Live Activity here. `init()` runs reconcileFromSharedSnapshot
+        // immediately after this — that's the canonical place to overlay
+        // any widget-intent writes that happened while the app was killed.
+        // Publishing here would overwrite them.
     }
 
     /// Push the FULL active-session state to the shared snapshot. Shared
@@ -464,23 +419,223 @@ final class SessionStore {
               let side = currentSide,
               let startS = startSide
         else { return }
-        let sideSecs = currentSideSeconds
-        // Virtual start: a date such that (now - sideEffectiveStart) == sideSecs.
-        // Widget uses Text(sideEffectiveStart, style: .timer) for live display.
-        let sideEffectiveStart = Date.now.addingTimeInterval(-TimeInterval(sideSecs))
+        // Real wall-clock start of the current segment, or nil when paused
+        // (no segment is in flight). The intent reads (now - sideStart) and
+        // adds that to the side's accumulator on its next commit, so writing
+        // segmentStart as a real timestamp keeps semantics consistent across
+        // both the in-app code and the lock-screen buttons.
+        let segmentStart: Date?
+        if isPaused {
+            segmentStart = nil
+        } else {
+            let segment = max(0, elapsedSeconds - currentSideStartedAtElapsed)
+            segmentStart = Date.now.addingTimeInterval(-TimeInterval(segment))
+        }
         SharedFeedSnapshot.setActiveSession(
             sessionStart: sessionStart,
             startSide: startS.rawValue,
             currentSide: side.rawValue,
-            sideEffectiveStart: sideEffectiveStart,
-            // Committed-only accumulators. The CURRENT segment's elapsed
-            // time is NOT included — widgets compute that from the virtual
-            // sideEffectiveStart so the live timer ticks correctly. Adding
-            // current segment to these would double-count.
+            segmentStart: segmentStart,
+            // pause() commits the in-flight segment before writing here, so
+            // when paused these already include the just-finished segment.
             leftAccumulatedSeconds: leftActiveSeconds,
             rightAccumulatedSeconds: rightActiveSeconds,
-            pausedAt: pauseStartDate,
-            pausedSideSeconds: isPaused ? sideSecs : 0
+            pausedAt: pauseStartDate
+        )
+        // We just wrote the snapshot, so our in-memory state already matches
+        // it. Pin the version so the poll won't trigger a redundant
+        // reconcile a beat later (which would stop+restart the timer).
+        lastReconciledVersion = UserDefaults(suiteName: "group.com.yael.nourish")?
+            .double(forKey: "widget.snapshotVersion") ?? 0
+    }
+
+    // MARK: - Reconcile from shared snapshot
+    //
+    // Called when a Live Activity intent has mutated the shared App Group
+    // snapshot. Recomputes every in-memory @Observable property from those
+    // keys so the in-app UI matches the lock screen. If the snapshot says
+    // the session was ended via the widget, tears down in-memory state.
+
+    private func reconcileFromSharedSnapshot() {
+        guard let d = UserDefaults(suiteName: "group.com.yael.nourish") else { return }
+        sessionLog.notice("RECONCILE: wasActive=\(self.isActive) wasPaused=\(self.isPaused) wasSide=\(self.currentSide?.rawValue ?? "nil")")
+
+        let widgetActive = d.bool(forKey: "widget.isSessionActive")
+        if !widgetActive {
+            // Session was ended (or was never live) — tear down if we still
+            // think we're active. The intent already saved the FeedingSession
+            // and refreshed the snapshot, so there's nothing else to commit.
+            if isActive {
+                stopTimer()
+                clearPersisted()
+                reset()
+                NotificationManager.shared.cancelSessionAlarm()
+                UIApplication.shared.isIdleTimerDisabled = false
+                sessionLog.notice("RECONCILE: shared says inactive → torn down in-memory session")
+            }
+            stopSharedPolling()
+            // Pin the version so the next foreground/poll skips this branch
+            // until something actually changes shared state again.
+            lastReconciledVersion = d.double(forKey: "widget.snapshotVersion")
+            return
+        }
+
+        let startTs = d.double(forKey: "widget.activeSessionStart")
+        guard startTs > 0,
+              let curRaw = d.string(forKey: "widget.activeSessionSide"),
+              let curSide = FeedSide(rawValue: curRaw)
+        else { return }
+        let stRaw = d.string(forKey: "widget.activeSessionStartSide") ?? curRaw
+        let stSide = FeedSide(rawValue: stRaw) ?? curSide
+
+        let sessionStart  = Date(timeIntervalSince1970: startTs)
+        let leftAcc       = d.integer(forKey: "widget.leftAccumulatedSeconds")
+        let rightAcc      = d.integer(forKey: "widget.rightAccumulatedSeconds")
+        let pausedTs      = d.double(forKey: "widget.activeSessionPausedAt")
+        let sideStartTs   = d.double(forKey: "widget.activeSessionSideStart")
+
+        let now = Date.now
+        let paused = pausedTs > 0
+        // sideStartTs is the REAL wall-clock start of the current segment
+        // (0 when paused). Accumulators include any segment committed by
+        // pause/switch/end. So the current segment is just `now - sideStart`
+        // while running, and 0 while paused.
+        let currentSegment: Int
+        if paused {
+            currentSegment = 0
+        } else if sideStartTs > 0 {
+            currentSegment = max(0, Int(now.timeIntervalSince1970 - sideStartTs))
+        } else {
+            currentSegment = 0
+        }
+        let totalActive = leftAcc + rightAcc + currentSegment
+        let totalWall   = max(0, Int(now.timeIntervalSince(sessionStart)))
+        let currentPauseChunk = paused ? max(0, Int(now.timeIntervalSince1970 - pausedTs)) : 0
+        let accumPause = max(0, totalWall - totalActive - currentPauseChunk)
+
+        stopTimer()
+        self.sessionStartDate           = sessionStart
+        self.startSide                  = stSide
+        self.currentSide                = curSide
+        self.leftActiveSeconds          = leftAcc
+        self.rightActiveSeconds         = rightAcc
+        self.elapsedSeconds             = totalActive
+        self.currentSideStartedAtElapsed = leftAcc + rightAcc
+        self.accumulatedPausedSeconds   = accumPause
+        self.isPaused                   = paused
+        self.pauseStartDate             = paused ? Date(timeIntervalSince1970: pausedTs) : nil
+        if leftAcc + rightAcc > 0 || curSide != stSide {
+            if switchedAtSeconds == nil { switchedAtSeconds = totalActive }
+        }
+
+        persist()
+        if !paused { startTimer() }
+        startSharedPolling()
+        rescheduleSessionAlarmForCurrentSide()
+        UIApplication.shared.isIdleTimerDisabled = true
+        // Mark the snapshot version we just absorbed so neither the poll
+        // nor the foreground handler re-reconciles this same state.
+        lastReconciledVersion = d.double(forKey: "widget.snapshotVersion")
+        sessionLog.notice("RECONCILE: applied side=\(curSide.rawValue) paused=\(paused) elapsed=\(totalActive)s version=\(self.lastReconciledVersion)")
+    }
+
+    /// Called once when the app enters the foreground. We only call the
+    /// full reconcile (which stops & restarts the 1Hz timer) when a Live
+    /// Activity intent actually mutated the shared snapshot — otherwise
+    /// we just nudge `elapsedSeconds` up to wall clock, leaving the timer
+    /// running. This eliminates the visible stutter on every app-open.
+    private func handleForeground() {
+        let d = UserDefaults(suiteName: "group.com.yael.nourish")
+        let version = d?.double(forKey: "widget.snapshotVersion") ?? 0
+        if version != lastReconciledVersion {
+            sessionLog.notice("FOREGROUND: snapshot changed \(self.lastReconciledVersion) → \(version), reconciling")
+            reconcileFromSharedSnapshot()
+        } else {
+            sessionLog.notice("FOREGROUND: snapshot unchanged, smooth sync")
+            syncToWallClock()
+        }
+    }
+
+    // MARK: - Brute-force shared-defaults polling
+
+    private func startSharedPolling() {
+        guard sharedPollTimer == nil else { return }
+        let d = UserDefaults(suiteName: "group.com.yael.nourish")
+        lastReconciledVersion = d?.double(forKey: "widget.snapshotVersion") ?? 0
+        let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard let d = UserDefaults(suiteName: "group.com.yael.nourish") else { return }
+            let current = d.double(forKey: "widget.snapshotVersion")
+            if current != self.lastReconciledVersion {
+                self.lastReconciledVersion = current
+                sessionLog.notice("POLL: snapshotVersion changed → reconciling")
+                self.reconcileFromSharedSnapshot()
+            }
+        }
+        // .common mode so the poll keeps ticking during scroll / touch handling.
+        RunLoop.main.add(t, forMode: .common)
+        sharedPollTimer = t
+        sessionLog.notice("POLL started")
+    }
+
+    private func stopSharedPolling() {
+        sharedPollTimer?.invalidate()
+        sharedPollTimer = nil
+        sessionLog.notice("POLL stopped")
+    }
+
+    // MARK: - Live Activity bridge
+    //
+    // ActivityKit's content state mirrors the same values we push to the
+    // shared snapshot. We resolve them in one place so the manager call
+    // sites stay terse.
+
+    private func liveActivityState() -> (
+        side: String,
+        sessionStart: Date,
+        sideStart: Date,
+        leftAccum: Int,
+        rightAccum: Int,
+        paused: Bool,
+        pausedSec: Int
+    )? {
+        guard let sessionStart = sessionStartDate, let side = currentSide else { return nil }
+        let sideSecs = currentSideSeconds
+        let sideEffectiveStart = Date.now.addingTimeInterval(-TimeInterval(sideSecs))
+        return (
+            side: side.rawValue,
+            sessionStart: sessionStart,
+            sideStart: sideEffectiveStart,
+            leftAccum: leftActiveSeconds,
+            rightAccum: rightActiveSeconds,
+            paused: isPaused,
+            pausedSec: isPaused ? sideSecs : 0
+        )
+    }
+
+    private func startOrUpdateLiveActivity() {
+        guard #available(iOS 16.2, *), let s = liveActivityState() else { return }
+        LiveActivityManager.shared.startFeed(
+            currentSide: s.side,
+            sessionStartDate: s.sessionStart,
+            currentSideStartDate: s.sideStart,
+            leftAccumulatedSeconds: s.leftAccum,
+            rightAccumulatedSeconds: s.rightAccum,
+            isPaused: s.paused,
+            pausedSideElapsedSeconds: s.pausedSec
+        )
+    }
+
+    private func updateLiveActivity() {
+        guard #available(iOS 16.2, *), let s = liveActivityState() else { return }
+        LiveActivityManager.shared.updateFeed(
+            currentSide: s.side,
+            sessionStartDate: s.sessionStart,
+            currentSideStartDate: s.sideStart,
+            leftAccumulatedSeconds: s.leftAccum,
+            rightAccumulatedSeconds: s.rightAccum,
+            isPaused: s.paused,
+            pausedSideElapsedSeconds: s.pausedSec
         )
     }
 }

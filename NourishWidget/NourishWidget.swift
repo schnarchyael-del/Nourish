@@ -134,87 +134,6 @@ struct SleepStatusRow: View {
     }
 }
 
-// MARK: - Interactive control buttons (iOS 17+ AppIntent buttons)
-
-/// "Baby woke up" — visible on Medium/Large home when sleeping.
-struct WokeUpButton: View {
-    var compact: Bool = false
-    var body: some View {
-        Button(intent: EndSleepIntent()) {
-            HStack(spacing: 6) {
-                Image(systemName: "sun.max.fill")
-                    .font(.system(size: compact ? 11 : 13, weight: .semibold))
-                Text("Baby woke up")
-                    .font(.system(size: compact ? 12 : 13, weight: .bold))
-            }
-            .foregroundStyle(NourishWidgetColor.sleepFg)
-            .padding(.horizontal, compact ? 10 : 12)
-            .padding(.vertical, compact ? 6 : 8)
-            .background(NourishWidgetColor.sleepBg)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Pause / Resume toggle — icon flips based on current pause state.
-struct PauseToggleButton: View {
-    let isPaused: Bool
-    var body: some View {
-        Button(intent: PauseFeedIntent()) {
-            Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(NourishWidgetColor.leftFg)
-                .frame(width: 44, height: 32)
-                .background(NourishWidgetColor.leftBg)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Switch side — labelled with the destination side.
-struct SwitchSideButton: View {
-    let currentSide: String   // "left" / "right"
-    var body: some View {
-        let target = currentSide == "left" ? "R" : "L"
-        Button(intent: SwitchSideIntent()) {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("→ \(target)")
-                    .font(.system(size: 12, weight: .bold))
-            }
-            .foregroundStyle(NourishWidgetColor.leftFg)
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(NourishWidgetColor.leftBg)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// End session — terra cotta tint to signal finality.
-struct EndFeedButton: View {
-    var body: some View {
-        Button(intent: EndFeedIntent()) {
-            HStack(spacing: 4) {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("End")
-                    .font(.system(size: 12, weight: .bold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(NourishWidgetColor.leftFg)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Home Screen Widget
 
 struct NourishHomeWidget: Widget {
@@ -275,25 +194,13 @@ private struct ActiveSmallHomeView: View {
                     Text(snapshot.isActivePaused ? "Paused" : "Feeding")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(NourishWidgetColor.muted)
-                    if snapshot.isActivePaused {
-                        Text(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))
-                            .font(.system(size: 18, weight: .bold, design: .serif))
-                            .foregroundStyle(NourishWidgetColor.ink)
-                            .minimumScaleFactor(0.7)
-                            .lineLimit(1)
-                    } else if let effective = snapshot.effectiveActiveStart {
-                        Text(effective, style: .timer)
-                            .font(.system(size: 18, weight: .bold, design: .serif))
-                            .foregroundStyle(NourishWidgetColor.ink)
-                            .minimumScaleFactor(0.7)
-                            .lineLimit(1)
-                    }
+                    Text("\(snapshot.activeSessionSide.capitalized) breast")
+                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .foregroundStyle(snapshot.activeSessionSide.sideForegroundColor)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                 }
             }
-
-            Text("\(snapshot.activeSessionSide.capitalized) breast")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(snapshot.activeSessionSide.sideForegroundColor)
 
             Spacer(minLength: 0)
 
@@ -415,17 +322,13 @@ private struct MediumHomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if snapshot.isBabySleeping {
-                HStack {
-                    SleepStatusRow(snapshot: snapshot, now: now)
-                    WokeUpButton(compact: true)
-                }
+                SleepStatusRow(snapshot: snapshot, now: now)
             } else {
                 NourishBrand(iconSize: 14)
             }
 
             if snapshot.isActuallyActive {
                 activeFeedRow
-                feedControlsRow
             } else {
                 feedRow
                 Spacer(minLength: 0)
@@ -437,37 +340,20 @@ private struct MediumHomeView: View {
 
     @ViewBuilder
     private var activeFeedRow: some View {
+        // Counter intentionally omitted — the Live Activity is the source
+        // of truth for the live timer.
         HStack(spacing: 12) {
             SideBadge(side: snapshot.activeSessionSide, size: 42)
             VStack(alignment: .leading, spacing: 2) {
-                Text(snapshot.isActivePaused ? "Paused" : "Feeding")
+                Text(snapshot.isActivePaused ? "Paused" : "Feeding now")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(NourishWidgetColor.muted)
-                if snapshot.isActivePaused {
-                    Text(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))
-                        .font(.system(size: 22, weight: .bold, design: .serif))
-                        .foregroundStyle(NourishWidgetColor.ink)
-                        .lineLimit(1)
-                } else if let effective = snapshot.effectiveActiveStart {
-                    Text(effective, style: .timer)
-                        .font(.system(size: 22, weight: .bold, design: .serif))
-                        .foregroundStyle(NourishWidgetColor.ink)
-                        .lineLimit(1)
-                }
                 Text("\(snapshot.activeSessionSide.capitalized) breast")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 22, weight: .bold, design: .serif))
                     .foregroundStyle(snapshot.activeSessionSide.sideForegroundColor)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
-        }
-    }
-
-    private var feedControlsRow: some View {
-        HStack(spacing: 8) {
-            PauseToggleButton(isPaused: snapshot.isActivePaused)
-            SwitchSideButton(currentSide: snapshot.activeSessionSide)
-            Spacer(minLength: 0)
-            EndFeedButton()
         }
     }
 
@@ -517,18 +403,13 @@ private struct LargeHomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if snapshot.isBabySleeping {
-                HStack {
-                    SleepStatusRow(snapshot: snapshot, now: now)
-                    WokeUpButton(compact: true)
-                }
+                SleepStatusRow(snapshot: snapshot, now: now)
             } else {
                 NourishBrand(iconSize: 16)
             }
 
             if snapshot.isActuallyActive {
                 activeFeedBlock
-                feedControlsRow
-                    .padding(.top, 4)
             } else if snapshot.hasData {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Last feed")
@@ -585,35 +466,17 @@ private struct LargeHomeView: View {
         HStack(spacing: 14) {
             SideBadge(side: snapshot.activeSessionSide, size: 50)
             VStack(alignment: .leading, spacing: 3) {
-                Text(snapshot.isActivePaused ? "Paused" : "Feeding")
+                Text(snapshot.isActivePaused ? "Paused" : "Feeding now")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(NourishWidgetColor.muted)
-                if snapshot.isActivePaused {
-                    Text(FeedFormat.elapsedTimer(snapshot.pausedElapsedSeconds))
-                        .font(.system(size: 26, weight: .bold, design: .serif))
-                        .foregroundStyle(NourishWidgetColor.ink)
-                        .lineLimit(1)
-                } else if let effective = snapshot.effectiveActiveStart {
-                    Text(effective, style: .timer)
-                        .font(.system(size: 26, weight: .bold, design: .serif))
-                        .foregroundStyle(NourishWidgetColor.ink)
-                        .lineLimit(1)
-                }
                 Text("\(snapshot.activeSessionSide.capitalized) breast")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 26, weight: .bold, design: .serif))
                     .foregroundStyle(snapshot.activeSessionSide.sideForegroundColor)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
     }
 
-    private var feedControlsRow: some View {
-        HStack(spacing: 8) {
-            PauseToggleButton(isPaused: snapshot.isActivePaused)
-            SwitchSideButton(currentSide: snapshot.activeSessionSide)
-            Spacer(minLength: 0)
-            EndFeedButton()
-        }
-    }
 }
 

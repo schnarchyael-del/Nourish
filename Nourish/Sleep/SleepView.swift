@@ -85,29 +85,16 @@ struct SleepView: View {
                 tooltips.show(.sleepTab)
             }
         }
-        // Realtime sync — same belt-and-suspenders pattern as ActiveSessionView.
-        // Darwin notification is the fast lane; 1Hz polling is the safety net
-        // in case the widget-process notification gets dropped.
-        .onReceive(NotificationCenter.default.publisher(for: WidgetSyncBridge.changed)) { _ in
-            absorbWidgetSleepEnd()
-        }
-        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
-            absorbWidgetSleepEnd()
+        // Live Activity's wake-up intent runs in the main app process,
+        // writes UserDefaults.standard["activeSleepStartedAt"] = 0, and
+        // posts .liveActivityStateChanged. @AppStorage doesn't observe
+        // writes from non-binding code paths, so explicitly resync.
+        .onReceive(NotificationCenter.default.publisher(for: .liveActivityStateChanged)) { _ in
+            let ts = UserDefaults.standard.double(forKey: "activeSleepStartedAt")
+            if ts != activeSleepStartedAt { activeSleepStartedAt = ts }
         }
     }
 
-    /// If the shared snapshot says no sleep is in progress but our local
-    /// `activeSleepStartedAt` flag is still set, the widget just ended the
-    /// nap. Clear the local flag here — the drainer running on next
-    /// foreground will persist the FeedingSession.
-    private func absorbWidgetSleepEnd() {
-        guard activeSleepStartedAt > 0 else { return }
-        let sharedSleeping = UserDefaults(suiteName: "group.com.yael.nourish")?
-            .bool(forKey: "widget.isBabySleeping") ?? false
-        if !sharedSleeping {
-            activeSleepStartedAt = 0
-        }
-    }
 
     // MARK: Header
 
@@ -349,6 +336,7 @@ struct SleepView: View {
 
         activeSleepStartedAt = 0
         SharedFeedSnapshot.clearActiveSleep()
+        if #available(iOS 16.2, *) { LiveActivityManager.shared.endSleep() }
         notes = ""
     }
 
@@ -387,6 +375,7 @@ struct SleepView: View {
         let now = Date.now
         activeSleepStartedAt = now.timeIntervalSince1970
         SharedFeedSnapshot.setActiveSleep(startedAt: now)
+        if #available(iOS 16.2, *) { LiveActivityManager.shared.startSleep(startDate: now) }
         AnalyticsService.sleepStarted()
     }
 
@@ -437,6 +426,7 @@ struct SleepView: View {
 
         UserDefaults.standard.set(0.0, forKey: "activeSleepStartedAt")
         SharedFeedSnapshot.clearActiveSleep()
+        if #available(iOS 16.2, *) { LiveActivityManager.shared.endSleep() }
     }
 
     /// "1h 45m" / "45m" / "2h"

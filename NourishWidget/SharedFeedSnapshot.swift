@@ -25,8 +25,11 @@ struct FeedSnapshot {
     let activeSessionSideStart: Date?
     /// Pause timestamp; non-nil means the session is currently paused.
     let activeSessionPausedAt: Date?
-    /// Frozen side-elapsed seconds at the moment of pause; shown as a static readout.
-    let activeSessionPausedSideSeconds: Int
+    /// TOTAL committed time on each side. Includes any segment committed
+    /// by pause / switch / end. When paused, the current side's accumulator
+    /// IS the value to display (no further computation needed).
+    let leftAccumulatedSeconds: Int
+    let rightAccumulatedSeconds: Int
 
     /// Sleep state — overlays on top of feed info when true.
     let isBabySleeping: Bool
@@ -49,7 +52,8 @@ struct FeedSnapshot {
         activeSessionSide: "",
         activeSessionSideStart: nil,
         activeSessionPausedAt: nil,
-        activeSessionPausedSideSeconds: 0,
+        leftAccumulatedSeconds: 0,
+        rightAccumulatedSeconds: 0,
         isBabySleeping: false,
         sleepStartedAt: nil
     )
@@ -71,7 +75,8 @@ struct FeedSnapshot {
         activeSessionSide: "",
         activeSessionSideStart: nil,
         activeSessionPausedAt: nil,
-        activeSessionPausedSideSeconds: 0,
+        leftAccumulatedSeconds: 0,
+        rightAccumulatedSeconds: 0,
         isBabySleeping: false,
         sleepStartedAt: nil
     )
@@ -93,7 +98,8 @@ struct FeedSnapshot {
         activeSessionSide: "left",
         activeSessionSideStart: Date.now.addingTimeInterval(-3 * 60 - 42),
         activeSessionPausedAt: nil,
-        activeSessionPausedSideSeconds: 0,
+        leftAccumulatedSeconds: 0,
+        rightAccumulatedSeconds: 0,
         isBabySleeping: false,
         sleepStartedAt: nil
     )
@@ -114,14 +120,23 @@ struct FeedSnapshot {
 
     var isActivePaused: Bool { activeSessionPausedAt != nil }
 
-    /// The virtual side-start date to use with `Text(..., style: .timer)`.
-    /// `now − effectiveActiveStart` gives the total accumulated time on the
-    /// current side (all segments combined, including any resumed segments).
-    var effectiveActiveStart: Date? { activeSessionSideStart }
+    /// Virtual side-start date for `Text(_, style: .timer)`. We want
+    /// `now − effectiveActiveStart` to equal `accumulator + currentSegment`
+    /// (= total time on the current side). `activeSessionSideStart` is the
+    /// REAL wall-clock start of the current segment, so we shift it backward
+    /// by the current side's accumulator to bake in the prior segments.
+    var effectiveActiveStart: Date? {
+        guard let sideStart = activeSessionSideStart else { return nil }
+        let acc = (activeSessionSide == "left") ? leftAccumulatedSeconds : rightAccumulatedSeconds
+        return sideStart.addingTimeInterval(-TimeInterval(acc))
+    }
 
-    /// Frozen elapsed seconds for the current side at the moment of pause.
-    /// Used to show a static time readout when the session is paused.
-    var pausedElapsedSeconds: Int { activeSessionPausedSideSeconds }
+    /// Elapsed seconds for the current side, frozen at the moment of pause.
+    /// Under the accumulator-as-total model, this is just the current side's
+    /// accumulator (the pause-side commit baked the segment in).
+    var pausedElapsedSeconds: Int {
+        activeSessionSide == "left" ? leftAccumulatedSeconds : rightAccumulatedSeconds
+    }
 }
 
 enum SharedKey {
@@ -142,7 +157,8 @@ enum SharedKey {
     static let activeSessionStart    = "widget.activeSessionStart"
     static let activeSessionSide     = "widget.activeSessionSide"
     static let activeSessionSideStart      = "widget.activeSessionSideStart"
-    static let activeSessionPausedSideSeconds = "widget.activeSessionPausedSideSeconds"
+    static let leftAccumSeconds            = "widget.leftAccumulatedSeconds"
+    static let rightAccumSeconds           = "widget.rightAccumulatedSeconds"
     static let activePausedAt        = "widget.activeSessionPausedAt"
     static let isBabySleeping        = "widget.isBabySleeping"
     static let sleepStartedAt        = "widget.sleepStartedAt"
@@ -192,7 +208,8 @@ extension FeedSnapshot {
             activeSessionSide: d.string(forKey: SharedKey.activeSessionSide) ?? "",
             activeSessionSideStart: sideStart,
             activeSessionPausedAt: pausedAt,
-            activeSessionPausedSideSeconds: d.integer(forKey: SharedKey.activeSessionPausedSideSeconds),
+            leftAccumulatedSeconds: d.integer(forKey: SharedKey.leftAccumSeconds),
+            rightAccumulatedSeconds: d.integer(forKey: SharedKey.rightAccumSeconds),
             isBabySleeping: d.bool(forKey: SharedKey.isBabySleeping) && sleepStart != nil,
             sleepStartedAt: sleepStart
         )
