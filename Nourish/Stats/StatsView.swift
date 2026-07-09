@@ -434,38 +434,40 @@ struct StatsView: View {
 
     private let tabLabels = ["Day", "Week", "Month", "History"]
 
+    // Deliberately NOT a horizontal ScrollView: when the chips overflow by
+    // even a few points the row becomes scrollable, and the scroll gesture
+    // eats taps (finger micro-movement reads as a drag) and nudges chips
+    // out of view. Equal-width chips always fit, so no scrolling is needed.
     private var tabPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(0..<tabLabels.count, id: \.self) { index in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) { selectedTab = index }
-                    } label: {
-                        Text(tabLabels[index])
-                            .font(.nSans(14, weight: .semibold))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .foregroundStyle(selectedTab == index ? c.bg : c.muted)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 7)
-                            .background(selectedTab == index ? c.ink : Color.clear)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(selectedTab == index ? c.ink : c.border, lineWidth: 1.5))
-                            // Unselected tabs have a clear background, which
-                            // is not hit-testable — without an explicit
-                            // content shape only the text glyphs catch taps.
-                            .contentShape(Capsule())
-                            // Invisible margin so near-misses above/below the
-                            // 31pt capsule still land (44pt effective target).
-                            .padding(.vertical, 6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 8) {
+            ForEach(0..<tabLabels.count, id: \.self) { index in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { selectedTab = index }
+                } label: {
+                    Text(tabLabels[index])
+                        .font(.nSans(14, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .foregroundStyle(selectedTab == index ? c.bg : c.muted)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity)
+                        .background(selectedTab == index ? c.ink : Color.clear)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(selectedTab == index ? c.ink : c.border, lineWidth: 1.5))
+                        // Unselected tabs have a clear background, which
+                        // is not hit-testable — without an explicit
+                        // content shape only the text glyphs catch taps.
+                        .contentShape(Capsule())
+                        // Invisible margin so near-misses above/below the
+                        // 31pt capsule still land (44pt effective target).
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 24)
         }
-        .scrollClipDisabled()
+        .padding(.horizontal, 24)
     }
 
     private var periodNoun: String {
