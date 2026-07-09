@@ -434,10 +434,10 @@ struct StatsView: View {
 
     private let tabLabels = ["Day", "Week", "Month", "History"]
 
-    // Deliberately NOT a horizontal ScrollView: when the chips overflow by
-    // even a few points the row becomes scrollable, and the scroll gesture
-    // eats taps (finger micro-movement reads as a drag) and nudges chips
-    // out of view. Equal-width chips always fit, so no scrolling is needed.
+    // Deliberately NOT a horizontal ScrollView: the chips fit on every
+    // supported screen (fonts downscale on narrow devices), and a scroll
+    // gesture would compete with the buttons — finger micro-movement reads
+    // as a drag, eating taps.
     private var tabPicker: some View {
         HStack(spacing: 8) {
             ForEach(0..<tabLabels.count, id: \.self) { index in
@@ -447,11 +447,10 @@ struct StatsView: View {
                     Text(tabLabels[index])
                         .font(.nSans(14, weight: .semibold))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .minimumScaleFactor(0.9)
                         .foregroundStyle(selectedTab == index ? c.bg : c.muted)
-                        .padding(.horizontal, 4)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity)
                         .background(selectedTab == index ? c.ink : Color.clear)
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(selectedTab == index ? c.ink : c.border, lineWidth: 1.5))
@@ -466,6 +465,7 @@ struct StatsView: View {
                 }
                 .buttonStyle(.plain)
             }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 24)
     }

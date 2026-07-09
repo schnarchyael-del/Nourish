@@ -239,9 +239,24 @@ final class FamilyService: ObservableObject {
         profileListener?.remove(); profileListener = nil
     }
 
+    /// Applies a Firestore snapshot delta to SwiftData.
+    ///
+    /// Performance matters here: on every listener (re)attach — i.e. every
+    /// app launch — Firestore delivers the ENTIRE collection as `.added`
+    /// changes, and this runs on the main actor. So:
+    ///  * fetch all local sessions ONCE and index by id, instead of one
+    ///    predicate fetch per document;
+    ///  * skip the write when the remote data matches what we already have,
+    ///    so an unchanged history dirties nothing — otherwise every launch
+    ///    rewrites every row and the resulting @Query invalidation freezes
+    ///    the UI for seconds on real data sets.
     private func applyRemoteSessionChanges(_ changes: [DocumentChange]) {
         guard let container = modelContainer else { return }
         let context = ModelContext(container)
+
+        guard let locals = try? context.fetch(FetchDescriptor<FeedingSession>()) else { return }
+        var byId = Dictionary(locals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var dirty = false
 
         for change in changes {
             switch change.type {
@@ -249,21 +264,22 @@ final class FamilyService: ObservableObject {
                 guard let cloud = FeedingSession.fromFirestoreData(change.document.data()) else {
                     continue
                 }
-                let cloudId = cloud.id
-                let descriptor = FetchDescriptor<FeedingSession>(
-                    predicate: #Predicate { $0.id == cloudId }
-                )
-                if let local = try? context.fetch(descriptor).first {
-                    local.startTime         = cloud.startTime
-                    local.endTime           = cloud.endTime
-                    local.feedType          = cloud.feedType
-                    local.bottleContentType = cloud.bottleContentType
-                    local.bottleAmountMl    = cloud.bottleAmountMl
-                    local.leftDurationMins  = cloud.leftDurationMins
-                    local.rightDurationMins = cloud.rightDurationMins
-                    local.loggedByDeviceID  = cloud.loggedByDeviceID
+                if let local = byId[cloud.id] {
+                    if local.startTime         != cloud.startTime         { local.startTime         = cloud.startTime;         dirty = true }
+                    if local.endTime           != cloud.endTime           { local.endTime           = cloud.endTime;           dirty = true }
+                    if local.feedType          != cloud.feedType          { local.feedType          = cloud.feedType;          dirty = true }
+                    if local.bottleContentType != cloud.bottleContentType { local.bottleContentType = cloud.bottleContentType; dirty = true }
+                    if local.bottleAmountMl    != cloud.bottleAmountMl    { local.bottleAmountMl    = cloud.bottleAmountMl;    dirty = true }
+                    if local.leftDurationMins  != cloud.leftDurationMins  { local.leftDurationMins  = cloud.leftDurationMins;  dirty = true }
+                    if local.rightDurationMins != cloud.rightDurationMins { local.rightDurationMins = cloud.rightDurationMins; dirty = true }
+                    if local.loggedByDeviceID  != cloud.loggedByDeviceID  { local.loggedByDeviceID  = cloud.loggedByDeviceID;  dirty = true }
+                    if local.pumpSide          != cloud.pumpSide          { local.pumpSide          = cloud.pumpSide;          dirty = true }
+                    if local.pumpVolumeMl      != cloud.pumpVolumeMl      { local.pumpVolumeMl      = cloud.pumpVolumeMl;      dirty = true }
+                    if local.notes             != cloud.notes             { local.notes             = cloud.notes;             dirty = true }
                 } else {
                     context.insert(cloud)
+                    byId[cloud.id] = cloud
+                    dirty = true
                 }
 
             case .removed:
@@ -271,15 +287,15 @@ final class FamilyService: ObservableObject {
                     let idStr = change.document.data()["id"] as? String,
                     let id = UUID(uuidString: idStr)
                 else { continue }
-                let descriptor = FetchDescriptor<FeedingSession>(
-                    predicate: #Predicate { $0.id == id }
-                )
-                if let local = try? context.fetch(descriptor).first {
+                if let local = byId[id] {
                     context.delete(local)
+                    byId[id] = nil
+                    dirty = true
                 }
             }
         }
 
+        guard dirty else { return }
         try? context.save()
         SharedFeedSnapshot.refresh(modelContainer: container)
     }
