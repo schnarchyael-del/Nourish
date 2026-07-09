@@ -252,8 +252,10 @@ struct StatsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            // Bottom padding is 6pt less than the design gap — the picker
+            // buttons carry a 6pt invisible tap margin on each side.
             tabPicker
-                .padding(.bottom, selectedTab == 3 ? 4 : 14)
+                .padding(.bottom, selectedTab == 3 ? 0 : 8)
             if selectedTab == 3 {
                 historyList
             } else {
@@ -384,7 +386,7 @@ struct StatsView: View {
         }
         .padding(.horizontal, 24)
         .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.bottom, 2)
     }
 
     /// Calendar icon (+ date label when viewing a past period) on the right
@@ -449,6 +451,14 @@ struct StatsView: View {
                             .background(selectedTab == index ? c.ink : Color.clear)
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(selectedTab == index ? c.ink : c.border, lineWidth: 1.5))
+                            // Unselected tabs have a clear background, which
+                            // is not hit-testable — without an explicit
+                            // content shape only the text glyphs catch taps.
+                            .contentShape(Capsule())
+                            // Invisible margin so near-misses above/below the
+                            // 31pt capsule still land (44pt effective target).
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }

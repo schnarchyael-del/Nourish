@@ -153,8 +153,14 @@ struct HomeView: View {
 
     /// Entry point for every feed-start tap on Home. If a nap is in
     /// progress, prompts to end it first; otherwise runs the action
-    /// immediately (existing behavior).
+    /// immediately (existing behavior). Pumping is exempt — it doesn't
+    /// involve the baby, so it coexists with an active nap (the pump
+    /// screen has its own sleep toggle).
     private func attemptFeedAction(_ action: PendingFeedAction) {
+        if case .pump = action {
+            executeFeedAction(action)
+            return
+        }
         if SleepView.hasActiveSleep {
             pendingFeedAction = action
             showEndSleepAlert = true

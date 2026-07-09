@@ -241,6 +241,9 @@ struct SleepView: View {
             sleepingCard
             wakeUpButton
             noteField
+            if !todaySleepSessions.isEmpty {
+                todaySection
+            }
         }
     }
 
@@ -372,8 +375,16 @@ struct SleepView: View {
 
     fileprivate func doStartSleep() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Self.startActiveSleep()
+    }
+
+    /// Starts an active sleep from outside this view (e.g. the pump screen).
+    /// Same persistence + widget sync as the in-view "Baby fell asleep"
+    /// button — writing UserDefaults.standard directly updates the
+    /// @AppStorage-backed UI too.
+    static func startActiveSleep() {
         let now = Date.now
-        activeSleepStartedAt = now.timeIntervalSince1970
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "activeSleepStartedAt")
         SharedFeedSnapshot.setActiveSleep(startedAt: now)
         if #available(iOS 16.2, *) { LiveActivityManager.shared.startSleep(startDate: now) }
         AnalyticsService.sleepStarted()

@@ -9,6 +9,7 @@ struct PumpSessionView: View {
     let onDismiss: () -> Void
 
     @AppStorage("darkActiveScreen") private var darkActiveScreen = true
+    @AppStorage("activeSleepStartedAt") private var activeSleepStartedAt: Double = 0
 
     @State private var selectedSide: PumpSide = .both
     @State private var timerStarted = false
@@ -262,6 +263,13 @@ struct PumpSessionView: View {
             // Notes
             notesField
                 .padding(.horizontal, 24)
+                .padding(.bottom, 14)
+
+            // Sleep toggle — pumping often happens while the baby naps, and
+            // this screen owns the display exclusively (no tab bar), so the
+            // sleep timer has to be reachable from here.
+            sleepToggle
+                .padding(.horizontal, 24)
 
             Spacer(minLength: 24)
 
@@ -325,6 +333,59 @@ struct PumpSessionView: View {
             .clipShape(Capsule())
         }
         .buttonStyle(ScaleButtonStyle())
+    }
+
+    // MARK: Sleep toggle
+
+    private var isBabySleeping: Bool { activeSleepStartedAt > 0 }
+
+    /// Lavender needs a lighter tint to read against the dark green pump
+    /// gradient; light mode uses the standard sleep accent.
+    private var sleepColor: Color {
+        darkMode ? Color(hex: "B3ACF2") : SleepView.sleepAccent
+    }
+
+    private var sleepToggle: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Button {
+                if isBabySleeping {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    SleepView.endActiveSleep(modelContext: modelContext)
+                } else {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    SleepView.startActiveSleep()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: isBabySleeping ? "sun.max.fill" : "moon.fill")
+                        .font(.nSans(14))
+                    Text(isBabySleeping ? "Baby woke up" : "Baby fell asleep")
+                        .font(.nSans(15, weight: .semibold))
+                    Spacer()
+                    if isBabySleeping {
+                        Text("Sleeping · \(sleepElapsedLabel(now: context.date))")
+                            .font(.nSans(13))
+                            .foregroundStyle(sleepColor.opacity(0.75))
+                    }
+                }
+                .foregroundStyle(sleepColor)
+                .padding(.horizontal, 18)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(darkMode ? sleepColor.opacity(0.10) : SleepView.sleepBg)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(sleepColor.opacity(darkMode ? 0.30 : 0.18), lineWidth: 1.5)
+                )
+            }
+            .buttonStyle(ScaleButtonStyle())
+        }
+    }
+
+    private func sleepElapsedLabel(now: Date) -> String {
+        let mins = max(0, Int(now.timeIntervalSince1970 - activeSleepStartedAt) / 60)
+        return SleepView.formatHM(mins)
     }
 
     // MARK: Volume card
