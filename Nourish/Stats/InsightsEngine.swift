@@ -46,10 +46,30 @@ struct InsightsEngine {
     let filter: InsightsTimeFilter
     let now: Date
 
+    // Split ONCE at init. These were computed properties re-filtering the
+    // whole session array on every access — with a few thousand sessions
+    // the repeated passes (behind slow SwiftData accessors) add up to
+    // visible main-thread stalls on the stats screen.
+    private let breastSessions: [FeedingSession]
+    private let pumpSessions: [FeedingSession]
+    private let sleepSessions: [FeedingSession]
+
     init(sessions: [FeedingSession], filter: InsightsTimeFilter, now: Date = .now) {
         self.sessions = sessions
         self.filter = filter
         self.now = now
+        var breast: [FeedingSession] = [], pump: [FeedingSession] = [], sleep: [FeedingSession] = []
+        for s in sessions {
+            switch s.feedType {
+            case .left, .right: breast.append(s)
+            case .pump:         pump.append(s)
+            case .sleep:        sleep.append(s)
+            case .bottle:       break
+            }
+        }
+        self.breastSessions = breast
+        self.pumpSessions = pump
+        self.sleepSessions = sleep
     }
 
     /// Two-phase visibility per insight:
@@ -144,18 +164,6 @@ struct InsightsEngine {
     }
 
     // MARK: - Session sets
-
-    private var breastSessions: [FeedingSession] {
-        sessions.filter { $0.feedType == .left || $0.feedType == .right }
-    }
-
-    private var pumpSessions: [FeedingSession] {
-        sessions.filter { $0.feedType == .pump }
-    }
-
-    private var sleepSessions: [FeedingSession] {
-        sessions.filter { $0.feedType == .sleep }
-    }
 
     private var sessionsInPatternWindow: [FeedingSession] {
         guard let days = filter.windowDays else { return sessions }

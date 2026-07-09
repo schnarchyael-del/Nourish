@@ -66,10 +66,26 @@ struct StatsView: View {
 
     // MARK: Computed stats
 
-    private var filteredSessions: [FeedingSession] {
-        let r = anchorRange
-        return sessions.filter { $0.startTime >= r.start && $0.startTime < r.end }
+    /// Scratch for the period-filtered array, refreshed at the top of every
+    /// `body` evaluation (see the `let _ = refreshPeriodCache()` line).
+    /// Every derived stat getter below funnels through `filteredSessions`;
+    /// filtering the full session array fresh on each access re-scanned it
+    /// 40+ times per render — whole seconds of main-thread time once the
+    /// history reaches a few thousand sessions. A plain reference box (not
+    /// @State) is safe here: body always writes it before any getter reads,
+    /// and the array holds live model references so field edits are never
+    /// stale.
+    private final class PeriodCache {
+        var filtered: [FeedingSession] = []
     }
+    private let periodCache = PeriodCache()
+
+    private func refreshPeriodCache() {
+        let r = anchorRange
+        periodCache.filtered = sessions.filter { $0.startTime >= r.start && $0.startTime < r.end }
+    }
+
+    private var filteredSessions: [FeedingSession] { periodCache.filtered }
 
     private var breastSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType == .left || $0.feedType == .right } }
     private var bottleSessions: [FeedingSession]  { filteredSessions.filter { $0.feedType == .bottle } }
@@ -231,8 +247,6 @@ struct StatsView: View {
         value >= 1.0
     }
 
-    private var maxBarValue: Int { max(1, chartBarData.map { $0.count }.max() ?? 1) }
-
     private var avgLeftMins: Int {
         let mins = breastSessions.map(\.leftMinutesResolved).filter { $0 > 0 }
         guard !mins.isEmpty else { return 0 }
@@ -250,6 +264,7 @@ struct StatsView: View {
     // MARK: Body
 
     var body: some View {
+        let _ = refreshPeriodCache()
         VStack(spacing: 0) {
             header
             // Bottom padding is 6pt less than the design gap — the picker
@@ -1273,13 +1288,18 @@ struct StatsView: View {
     }
 
     private var barChartCard: some View {
-        card {
+        // Bucket ONCE — chartBarData scans every session per bucket, and
+        // referencing the computed property inside the ForEach re-ran the
+        // full bucketing for every bar.
+        let data = chartBarData
+        let maxBar = max(1, data.map { $0.count }.max() ?? 1)
+        return card {
             cardTitle(chartTitle)
 
             HStack(alignment: .bottom, spacing: 7) {
-                ForEach(chartBarData.indices, id: \.self) { i in
-                    let item = chartBarData[i]
-                    let fraction = maxBarValue > 0 ? Double(item.count) / Double(maxBarValue) : 0
+                ForEach(data.indices, id: \.self) { i in
+                    let item = data[i]
+                    let fraction = Double(item.count) / Double(maxBar)
 
                     VStack(spacing: 5) {
                         GeometryReader { geo in
@@ -1288,7 +1308,7 @@ struct StatsView: View {
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(
                                         LinearGradient(
-                                            colors: i == chartBarData.count - 1
+                                            colors: i == data.count - 1
                                                 ? [c.leftAccent.opacity(0.8), c.leftAccent]
                                                 : [c.leftAccent.opacity(0.4), c.leftAccent.opacity(0.6)],
                                             startPoint: .top, endPoint: .bottom
@@ -1664,7 +1684,11 @@ struct StatsView: View {
 
     @ViewBuilder
     private var insightsSection: some View {
-        if !insights.isEmpty {
+        // Run the engine ONCE — `insights` re-runs a full multi-pass engine
+        // over every session on each access, and this section used to read
+        // it four times per render.
+        let list = insights
+        if !list.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("Insights")
@@ -1676,7 +1700,7 @@ struct StatsView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(insights) { insight in
+                        ForEach(list) { insight in
                             insightCard(insight)
                         }
                     }
@@ -1684,7 +1708,7 @@ struct StatsView: View {
                 }
                 .scrollClipDisabled()
                 .onAppear {
-                    InsightsEngine(sessions: sessions, filter: insightsTimeFilter).markShown(insights)
+                    InsightsEngine(sessions: sessions, filter: insightsTimeFilter).markShown(list)
                 }
             }
             .padding(.top, 8)
@@ -1762,16 +1786,23 @@ struct StatsView: View {
     private var historyList: some View {
         if sessions.isEmpty {
             ScrollView { historyEmptyState }
-        } else if historyDays.isEmpty {
-            ScrollView { historyFilterEmptyState }
         } else {
-            historyListContent
+            // Compute ONCE per body evaluation. historyDays filters, groups,
+            // and sorts every session — referencing the computed property
+            // inside the row builder below re-ran all of that per row,
+            // freezing the UI for many seconds on large histories.
+            let days = historyDays
+            if days.isEmpty {
+                ScrollView { historyFilterEmptyState }
+            } else {
+                historyListContent(days)
+            }
         }
     }
 
-    private var historyListContent: some View {
+    private func historyListContent(_ days: [(date: Date, sessions: [FeedingSession])]) -> some View {
         List {
-            ForEach(historyDays, id: \.date) { day in
+            ForEach(days, id: \.date) { day in
                 Section {
                     ForEach(Array(day.sessions.enumerated()), id: \.element.id) { offset, session in
                         VStack(spacing: 0) {
@@ -1784,7 +1815,7 @@ struct StatsView: View {
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets())
                         .tooltipTargetIf(
-                            day.date == historyDays.first?.date && offset == 0,
+                            day.date == days.first?.date && offset == 0,
                             .historySwipe
                         )
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
